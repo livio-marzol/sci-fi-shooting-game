@@ -37,9 +37,11 @@ export class Player {
   public currentPitch = 0;
   public targetPitch = 0;
 
-  // Recuo de Disparo (Recoil Kick)
+  // Recuo de Disparo (Recoil Kick & Slide Blowback)
   private recoilPitch = 0;
   private recoilZ = 0;
+  private slideBlowback = 0;
+  public isSlideLocked = false;
 
   // Locomoção Procedural e Respiração
   private walkCycle = 0;
@@ -51,8 +53,15 @@ export class Player {
   private idleBreathCycle = 0;
   private muzzleFlashTimer = 0;
 
-  // Armas e Acessórios (Apenas a pistola tática na mão - SEM rifle nas costas)
+  // Armas e Acessórios Next-Gen (Pistola com Ferrolho Blowback, Red-Dot, Carregador e Laser Tático)
   private handgunMesh!: THREE.Group;
+  private slideGroup!: THREE.Group;
+  private magazineMesh!: THREE.Mesh;
+  private laserSightBeam!: THREE.Mesh;
+
+  // Quaternions base calibrados para orientação anatômica perfeita das duas mãos na empunhadura
+  private readonly qRightHandBase = new THREE.Quaternion(-0.07897, -0.52257, 0.77947, 0.33632).normalize();
+  private readonly qLeftHandBase = new THREE.Quaternion(0.04101, -0.58544, 0.77282, -0.24152).normalize();
 
   constructor(scene: THREE.Scene) {
     this.rootGroup = new THREE.Group();
@@ -69,7 +78,7 @@ export class Player {
     // Configura iluminação de recorte estilo PS5 acompanhando o personagem
     this.setupCharacterLighting();
 
-    // Cria a pistola tática de combate (Silver Ghost / SG-09 R)
+    // Cria a pistola tática de combate Next-Gen (Silver Ghost / SG-09 R Custom)
     this.createTacticalWeapons();
 
     // Carrega o modelo 3D humano do Operador Tático
@@ -102,73 +111,207 @@ export class Player {
   }
 
   /**
-   * Constrói a pistola de combate (Silver Ghost / SG-09 R) detalhada
+   * Constrói a pistola de combate Next-Gen (SG-09 R Custom) com Ferrolho Blowback animado,
+   * Mira Óptica RMR Red-Dot, alça/massa de Trítio, Carregador destacável e Laser Tático sub-cano.
    */
   private createTacticalWeapons() {
-    // ==========================================
-    // PISTOLA DE COMBATE (SILVER GHOST / SG-09 R)
-    // ==========================================
     this.handgunMesh = new THREE.Group();
     this.handgunMesh.name = 'TacticalHandgun';
 
     const slideSilverMat = new THREE.MeshStandardMaterial({
-      color: 0xd4d8dc,
-      roughness: 0.22,
-      metalness: 0.88
+      color: 0xdce2e8,
+      roughness: 0.18,
+      metalness: 0.92
+    });
+
+    const slideFluteMat = new THREE.MeshStandardMaterial({
+      color: 0x262c35,
+      roughness: 0.35,
+      metalness: 0.78
     });
 
     const framePolymerMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.6,
-      metalness: 0.2
+      color: 0x16191f,
+      roughness: 0.55,
+      metalness: 0.25
     });
 
     const gunmetalMat = new THREE.MeshStandardMaterial({
-      color: 0x18181b,
-      roughness: 0.25,
-      metalness: 0.9
+      color: 0x1e242d,
+      roughness: 0.24,
+      metalness: 0.88
     });
 
-    // Ferrolho prateado superior (Slide voltado para -Z)
-    const slide = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.052, 0.24), slideSilverMat);
-    slide.position.set(0, 0.04, -0.04);
-    slide.castShadow = true;
-    this.handgunMesh.add(slide);
+    const brassChamberMat = new THREE.MeshStandardMaterial({
+      color: 0xd4a338,
+      roughness: 0.25,
+      metalness: 0.85
+    });
 
-    // Cano dianteiro de aço escovado
-    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 10), gunmetalMat);
+    const tritiumMat = new THREE.MeshStandardMaterial({
+      color: 0x10b981,
+      emissive: 0x34d399,
+      emissiveIntensity: 1.8,
+      roughness: 0.2
+    });
+
+    const redDotEmitterMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff
+    });
+
+    const opticGlassMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false
+    });
+
+    // 1. FRAME / CORPO DE POLÍMERO TÁTICO E CANO FIXO
+    const frameGroup = new THREE.Group();
+    this.handgunMesh.add(frameGroup);
+
+    // Trilho inferior / Dust cover com Picatinny
+    const dustCover = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.022, 0.19), framePolymerMat);
+    dustCover.position.set(0, 0.018, -0.055);
+    frameGroup.add(dustCover);
+
+    // Cano interno de aço escovado + Câmara dourada/latão visível no Blowback
+    const gunBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.23, 12), gunmetalMat);
     gunBarrel.rotation.x = Math.PI / 2;
-    gunBarrel.position.set(0, 0.035, -0.10);
-    this.handgunMesh.add(gunBarrel);
+    gunBarrel.position.set(0, 0.042, -0.095);
+    frameGroup.add(gunBarrel);
 
-    // Empunhadura de polímero texturizado encaixada dentro das mãos fechadas (Grip)
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.085, 0.052), framePolymerMat);
-    grip.position.set(0, -0.022, -0.012);
-    grip.rotation.x = -0.18;
-    grip.castShadow = false;
-    this.handgunMesh.add(grip);
+    const chamberBlock = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.045), brassChamberMat);
+    chamberBlock.position.set(0, 0.044, -0.005);
+    frameGroup.add(chamberBlock);
 
-    // Guarda-mato e gatilho
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.042, 0.06), framePolymerMat);
-    guard.position.set(0, -0.02, -0.03);
-    this.handgunMesh.add(guard);
+    // Compensador tático frontal na ponta do cano
+    const compensator = new THREE.Mesh(new THREE.BoxGeometry(0.040, 0.048, 0.036), gunmetalMat);
+    compensator.position.set(0, 0.038, -0.178);
+    frameGroup.add(compensator);
 
-    // Massa de mira frontal
-    const sightF = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.012, 0.015), gunmetalMat);
-    sightF.position.set(0, 0.072, -0.15);
-    this.handgunMesh.add(sightF);
+    // Empunhadura ergonômica texturizada + Magwell alargado
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.095, 0.052), framePolymerMat);
+    grip.position.set(0, -0.026, 0.002);
+    grip.rotation.x = -0.20;
+    frameGroup.add(grip);
 
-    // Alça de mira traseira
-    const sightR = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.012, 0.015), gunmetalMat);
-    sightR.position.set(0, 0.072, 0.06);
-    this.handgunMesh.add(sightR);
+    const magwell = new THREE.Mesh(new THREE.BoxGeometry(0.040, 0.016, 0.058), gunmetalMat);
+    magwell.position.set(0, -0.068, 0.012);
+    magwell.rotation.x = -0.20;
+    frameGroup.add(magwell);
+
+    // Carregador destacável (animado durante a recarga com 'R')
+    this.magazineMesh = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.092, 0.042), gunmetalMat);
+    this.magazineMesh.position.set(0, -0.035, 0.005);
+    this.magazineMesh.rotation.x = -0.20;
+    this.handgunMesh.add(this.magazineMesh);
+
+    // Guarda-mato undercut e gatilho curvo
+    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.020, 0.038, 0.062), framePolymerMat);
+    guard.position.set(0, -0.012, -0.038);
+    frameGroup.add(guard);
+
+    const trigger = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.024, 0.010), slideSilverMat);
+    trigger.position.set(0, -0.006, -0.032);
+    trigger.rotation.x = 0.25;
+    frameGroup.add(trigger);
+
+    // Módulo de Laser / Lanterna Tática Sub-Cano (SureFire X300 style)
+    const tacLightBody = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.026, 0.088), gunmetalMat);
+    tacLightBody.position.set(0, -0.002, -0.112);
+    frameGroup.add(tacLightBody);
+
+    const laserEmitterLens = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.008, 10), redDotEmitterMat);
+    laserEmitterLens.rotation.x = Math.PI / 2;
+    laserEmitterLens.position.set(0, -0.004, -0.158);
+    frameGroup.add(laserEmitterLens);
+
+    // Feixe de Laser Tático Contínuo Convergente para a linha de tiro
+    const laserBeamGeo = new THREE.CylinderGeometry(0.0018, 0.0024, 14.0, 6);
+    laserBeamGeo.rotateX(Math.PI / 2);
+    laserBeamGeo.translate(0, 0, -7.0);
+    const laserBeamMat = new THREE.MeshBasicMaterial({
+      color: 0x00f0ff,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false
+    });
+    this.laserSightBeam = new THREE.Mesh(laserBeamGeo, laserBeamMat);
+    this.laserSightBeam.position.set(0, -0.004, -0.160);
+    // Leve convergência angular para cruzar a linha central da retícula
+    this.laserSightBeam.rotation.set(0.006, -0.012, 0);
+    frameGroup.add(this.laserSightBeam);
+
+    // 2. SLIDE / FERROLHO ANIMADO COM BLOWBACK + RED-DOT RMR
+    this.slideGroup = new THREE.Group();
+    this.handgunMesh.add(this.slideGroup);
+
+    const slideMain = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.046, 0.225), slideSilverMat);
+    slideMain.position.set(0, 0.044, -0.045);
+    slideMain.castShadow = true;
+    this.slideGroup.add(slideMain);
+
+    // Ranhuras usinadas laterais (Serrations) e janela de ejeção
+    const slideSerration = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.030, 0.065), slideFluteMat);
+    slideSerration.position.set(0, 0.043, 0.025);
+    this.slideGroup.add(slideSerration);
+
+    const ejectionPort = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.020, 0.046), slideFluteMat);
+    ejectionPort.position.set(0.010, 0.058, -0.006);
+    this.slideGroup.add(ejectionPort);
+
+    // Massa de mira frontal com ampola de Trítio brilhante
+    const sightF = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.014, 0.016), gunmetalMat);
+    sightF.position.set(0, 0.072, -0.146);
+    this.slideGroup.add(sightF);
+
+    const tritiumFront = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.005, 0.004), tritiumMat);
+    tritiumFront.position.set(0, 0.074, -0.138);
+    this.slideGroup.add(tritiumFront);
+
+    // Alça de mira traseira com 2 pontos de Trítio
+    const sightR = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.014, 0.016), gunmetalMat);
+    sightR.position.set(0, 0.072, 0.056);
+    this.slideGroup.add(sightR);
+
+    for (const sx of [-0.008, 0.008]) {
+      const tritiumRear = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.004, 0.004), tritiumMat);
+      tritiumRear.position.set(sx, 0.074, 0.064);
+      this.slideGroup.add(tritiumRear);
+    }
+
+    // Mira Óptica Reflex Red-Dot (Trijicon RMR style) montada sobre o ferrolho
+    const rmrBase = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.012, 0.046), gunmetalMat);
+    rmrBase.position.set(0, 0.071, 0.022);
+    this.slideGroup.add(rmrBase);
+
+    const rmrHoodL = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.026, 0.032), gunmetalMat);
+    rmrHoodL.position.set(-0.017, 0.088, 0.018);
+    this.slideGroup.add(rmrHoodL);
+
+    const rmrHoodR = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.026, 0.032), gunmetalMat);
+    rmrHoodR.position.set(0.017, 0.088, 0.018);
+    this.slideGroup.add(rmrHoodR);
+
+    const rmrHoodTop = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.005, 0.028), gunmetalMat);
+    rmrHoodTop.position.set(0, 0.100, 0.018);
+    this.slideGroup.add(rmrHoodTop);
+
+    const rmrLens = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.020, 0.003), opticGlassMat);
+    rmrLens.position.set(0, 0.087, 0.016);
+    this.slideGroup.add(rmrLens);
+
+    const rmrDot = new THREE.Mesh(new THREE.BoxGeometry(0.0045, 0.0045, 0.0045), redDotEmitterMat);
+    rmrDot.position.set(0, 0.087, 0.018);
+    this.slideGroup.add(rmrDot);
 
     // Ponto exato da saída do projétil/laser na boca do cano (Muzzle Point)
-    this.muzzlePoint.position.set(0, 0.038, -0.22);
+    this.muzzlePoint.position.set(0, 0.042, -0.215);
     this.handgunMesh.add(this.muzzlePoint);
 
     // Posição temporária no rootGroup antes do modelo carregar
-    this.handgunMesh.position.set(0.0, 1.32, -0.38);
+    this.handgunMesh.position.set(0.168, 1.405, -0.360);
     this.rootGroup.add(this.handgunMesh);
   }
 
@@ -1081,7 +1224,8 @@ export class Player {
       }
     }
 
-    // 1. Inclinação do tronco acompanhando o pitch da mira (sem mover os pés!)
+    // 1. Inclinação e apresentação tática do tronco acompanhando o pitch da mira
+    // Leve rotação torácica avança a escápula esquerda para alcance biomecânico natural na empunhadura dupla à direita
     const spine = this.bones['Spine'];
     const spine1 = this.bones['Spine1'];
     const spine2 = this.bones['Spine2'];
@@ -1091,11 +1235,26 @@ export class Player {
     // Respiração sutil no peito (Spine1) durante repouso
     const breath = Math.sin(this.idleBreathCycle) * 0.012 * (1.0 - this.walkWeight);
 
-    if (spine) spine.rotation.x += -0.03 - pitch * 0.18;
-    if (spine1) spine1.rotation.x += -0.03 - pitch * 0.18 + breath;
-    if (spine2) spine2.rotation.x += -0.03 - pitch * 0.22;
-    if (neck) neck.rotation.x += 0.02 - pitch * 0.12;
-    if (head) head.rotation.x += 0.02 - pitch * 0.12;
+    if (spine) {
+      spine.rotation.x += -0.02 - pitch * 0.18;
+      spine.rotation.y += -0.09;
+    }
+    if (spine1) {
+      spine1.rotation.x += -0.02 - pitch * 0.18 + breath;
+      spine1.rotation.y += -0.09;
+    }
+    if (spine2) {
+      spine2.rotation.x += -0.02 - pitch * 0.22;
+      spine2.rotation.y += -0.07;
+    }
+    if (neck) {
+      neck.rotation.x += 0.02 - pitch * 0.12;
+      neck.rotation.y += 0.17;
+    }
+    if (head) {
+      head.rotation.x += 0.02 - pitch * 0.12;
+      head.rotation.y += 0.08;
+    }
 
     // 2. Sistema de Marcha Humana Biomecânica (Human Gait Cycle)
     const hips = this.bones['Hips'];
@@ -1246,48 +1405,74 @@ export class Player {
       spine.rotation.y -= hipYawY;
     }
 
-    // 3. Braço Direito: empunhadura tática segurando a pistola
+    // 3. Cinemática Inversa de 2 Ossos (Two-Bone IK) para Apresentação Over-The-Shoulder Realista
+    // Posiciona a pistola e a empunhadura dupla em x = +0.168m (no corredor visual limpo à direita da cabeça e sobre o ombro direito)
+    const rShoulder = this.bones['RightShoulder'];
+    const lShoulder = this.bones['LeftShoulder'];
     const rArm = this.bones['RightArm'];
     const rForeArm = this.bones['RightForeArm'];
     const rHand = this.bones['RightHand'];
-
-    if (rArm) {
-      rArm.rotation.x += 0.52 - pitch * 0.35;
-      rArm.rotation.y -= 0.44;
-      rArm.rotation.z -= 1.40;
-    }
-    if (rForeArm) {
-      rForeArm.rotation.x += 0.15;
-      rForeArm.rotation.z -= 0.45;
-    }
-    if (rHand) {
-      rHand.rotation.x -= 0.10 - pitch * 0.15;
-      rHand.rotation.y += 0.05;
-      rHand.rotation.z += 0.15;
-    }
-
-    // 4. Braço Esquerdo: empunhadura Weaver dupla apoiando firmemente sob a mão direita
     const lArm = this.bones['LeftArm'];
     const lForeArm = this.bones['LeftForeArm'];
     const lHand = this.bones['LeftHand'];
 
-    if (lArm) {
-      lArm.rotation.x += 0.70 - pitch * 0.35;
-      lArm.rotation.y += 0.55 + pitch * 0.14;
-      lArm.rotation.z += 1.50;
+    if (rShoulder) rShoulder.rotation.z += -0.15;
+    if (lShoulder) {
+      lShoulder.rotation.z += 0.38;
+      lShoulder.rotation.y += -0.05;
     }
-    if (lForeArm) {
-      lForeArm.rotation.x += 0.0;
-      lForeArm.rotation.z += 0.20 + pitch * 0.48;
+
+    // Pose inicial anatômica antes do ajuste analítico de 2 ossos
+    if (rArm) rArm.rotation.set(0.35, -0.25, -1.30);
+    if (lArm) lArm.rotation.set(0.75, 0.45, 1.40);
+
+    this.rootGroup.updateMatrixWorld(true);
+
+    // Coordenada alvo da empunhadura no espaço local do rootGroup (alinhada ao olho/ombro direito + recuo dinâmico)
+    const gripLocal = new THREE.Vector3(
+      0.168,
+      1.405 + Math.sin(pitch) * 0.25 + this.recoilPitch * 0.14,
+      -0.360 * Math.cos(pitch) + this.recoilZ
+    );
+    const lGripLocal = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.005, 0.008));
+
+    // Pole vectors anatômicos para orientar os cotovelos naturalmente para baixo/fora
+    const rPoleLocal = new THREE.Vector3(0.42, 1.24 + Math.sin(pitch) * 0.15, -0.10);
+    const lPoleLocal = new THREE.Vector3(-0.22, 1.20 + Math.sin(pitch) * 0.15, -0.18);
+
+    const gripWorld = gripLocal.applyMatrix4(this.rootGroup.matrixWorld);
+    const lGripWorld = lGripLocal.applyMatrix4(this.rootGroup.matrixWorld);
+    const rPoleWorld = rPoleLocal.applyMatrix4(this.rootGroup.matrixWorld);
+    const lPoleWorld = lPoleLocal.applyMatrix4(this.rootGroup.matrixWorld);
+
+    if (rArm && rForeArm && rHand) {
+      this.solveTwoBoneIK(rArm, rForeArm, rHand, gripWorld, rPoleWorld);
+    }
+    if (lArm && lForeArm && lHand) {
+      this.solveTwoBoneIK(lArm, lForeArm, lHand, lGripWorld, lPoleWorld);
+    }
+
+    // Alinha a orientação global das mãos para cravar o cano da pistola exatamente na direção do Pitch da mira
+    const qPitch = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      pitch + this.recoilPitch * 0.65
+    );
+    if (rHand) {
+      const qTargetRH = this.rootGroup.quaternion
+        .clone()
+        .multiply(qPitch)
+        .multiply(this.qRightHandBase);
+      this.setBoneWorldQuaternion(rHand, qTargetRH);
     }
     if (lHand) {
-      lHand.rotation.x -= 0.10 - pitch * 0.15;
-      lHand.rotation.y += 0.25;
-      lHand.rotation.z -= 0.20;
+      const qTargetLH = this.rootGroup.quaternion
+        .clone()
+        .multiply(qPitch)
+        .multiply(this.qLeftHandBase);
+      this.setBoneWorldQuaternion(lHand, qTargetLH);
     }
 
     // 5. Fechamento anatômico real de todas as falanges e polegares ao redor da pistola
-    // (No rig leon.glb, os dedos flexionam em X e as falanges distais do polegar flexionam em Z sobre o indicador)
     const fingerNames = ['Index', 'Middle', 'Ring', 'Pinky'];
     const hands = ['RightHand', 'LeftHand'];
     for (const hand of hands) {
@@ -1310,11 +1495,84 @@ export class Player {
   }
 
   /**
+   * Solver Analítico de Cinemática Inversa de 2 Ossos (Lei dos Cossenos + Alinhamento de Plano Pole Vector)
+   */
+  private solveTwoBoneIK(
+    upperBone: THREE.Bone,
+    lowerBone: THREE.Bone,
+    endBone: THREE.Bone,
+    targetWorldPos: THREE.Vector3,
+    poleWorldPos: THREE.Vector3
+  ) {
+    this.rootGroup.updateMatrixWorld(true);
+    const pA = new THREE.Vector3();
+    const pB = new THREE.Vector3();
+    const pC = new THREE.Vector3();
+    upperBone.getWorldPosition(pA);
+    lowerBone.getWorldPosition(pB);
+    endBone.getWorldPosition(pC);
+
+    const lab = pA.distanceTo(pB);
+    const lbc = pB.distanceTo(pC);
+    const dirAT = new THREE.Vector3().subVectors(targetWorldPos, pA);
+    const lat = THREE.MathUtils.clamp(dirAT.length(), 0.05, lab + lbc - 0.002);
+
+    const dirAB = new THREE.Vector3().subVectors(pB, pA).normalize();
+    const cosAngleA = THREE.MathUtils.clamp(
+      (lab * lab + lat * lat - lbc * lbc) / (2 * lab * lat),
+      -1,
+      1
+    );
+    const angleA = Math.acos(cosAngleA);
+
+    const dirATNorm = dirAT.clone().normalize();
+    const toPole = new THREE.Vector3().subVectors(poleWorldPos, pA);
+    const planeNormal = new THREE.Vector3().crossVectors(dirATNorm, toPole).normalize();
+    if (planeNormal.lengthSq() < 1e-5) {
+      planeNormal.set(0, 1, 0);
+    }
+
+    const desiredAB = dirATNorm.clone().applyAxisAngle(planeNormal, angleA);
+    const qUpperWorld = new THREE.Quaternion().setFromUnitVectors(dirAB, desiredAB);
+    const parentUpperQ = new THREE.Quaternion();
+    if (upperBone.parent) upperBone.parent.getWorldQuaternion(parentUpperQ);
+    const upperWorldQ = new THREE.Quaternion();
+    upperBone.getWorldQuaternion(upperWorldQ);
+    upperBone.quaternion.copy(parentUpperQ.invert().multiply(qUpperWorld).multiply(upperWorldQ));
+    this.rootGroup.updateMatrixWorld(true);
+
+    lowerBone.getWorldPosition(pB);
+    endBone.getWorldPosition(pC);
+    const curBC = new THREE.Vector3().subVectors(pC, pB).normalize();
+    const desBC = new THREE.Vector3().subVectors(targetWorldPos, pB).normalize();
+    const qLowerWorld = new THREE.Quaternion().setFromUnitVectors(curBC, desBC);
+    const parentLowerQ = new THREE.Quaternion();
+    if (lowerBone.parent) lowerBone.parent.getWorldQuaternion(parentLowerQ);
+    const lowerWorldQ = new THREE.Quaternion();
+    lowerBone.getWorldQuaternion(lowerWorldQ);
+    lowerBone.quaternion.copy(parentLowerQ.invert().multiply(qLowerWorld).multiply(lowerWorldQ));
+    this.rootGroup.updateMatrixWorld(true);
+  }
+
+  /**
+   * Define a orientação global exata de um osso convertendo para o espaço local do pai
+   */
+  private setBoneWorldQuaternion(bone: THREE.Bone, targetWorldQ: THREE.Quaternion) {
+    const parentQ = new THREE.Quaternion();
+    if (bone.parent) {
+      bone.parent.getWorldQuaternion(parentQ);
+    }
+    bone.quaternion.copy(parentQ.invert().multiply(targetWorldQ));
+    bone.updateMatrixWorld(true);
+  }
+
+  /**
    * Aciona a animação de recuo de disparo (Muzzle Kick & Slide Blowback)
    */
   public triggerRecoil() {
-    this.recoilPitch = 0.09; // Elevação instantânea do cano
-    this.recoilZ = 0.025;
+    this.recoilPitch = 0.095; // Elevação instantânea do cano
+    this.recoilZ = 0.028;
+    this.slideBlowback = 0.042; // Recuo físico real do ferrolho (4.2cm)
     this.muzzleFlashTimer = 0.055;
     this.muzzleLight.intensity = 5.0;
   }
@@ -1426,14 +1684,19 @@ export class Player {
     // 5. Aplica a cinemática esquelética (Mira superior Weaver + Locomoção direcional das pernas)
     this.applyCombatAimPose(this.currentPitch, dirX, dirZ);
 
-    // 6. Recuperação suave do recuo da arma na mão
+    // 6. Recuperação suave do recuo da arma e retorno mecânico do ferrolho (Slide Blowback)
     this.recoilPitch = THREE.MathUtils.lerp(this.recoilPitch, 0, 18 * delta);
     this.recoilZ = THREE.MathUtils.lerp(this.recoilZ, 0, 18 * delta);
+    const targetSlideZ = this.isSlideLocked ? 0.038 : 0.0;
+    this.slideBlowback = THREE.MathUtils.lerp(this.slideBlowback, targetSlideZ, 26 * delta);
+    if (this.slideGroup) {
+      this.slideGroup.position.z = this.slideBlowback;
+    }
 
     if (this.isModelLoaded && this.bones['RightHand']) {
       // Posição firme na mão direita (sem deslocamento que solte a arma da palma)
       this.handgunMesh.position.set(0.012, 0.085, -0.015);
-      this.handgunMesh.rotation.set(1.0638 + this.recoilPitch * 0.4, 0.5325, -1.9987, 'YXZ');
+      this.handgunMesh.rotation.set(1.0638 + this.recoilPitch * 0.35, 0.5325, -1.9987, 'YXZ');
     }
 
     // Timer do clarão de disparo

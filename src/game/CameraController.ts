@@ -22,16 +22,16 @@ export class CameraController {
   // Sensibilidade do Mouse equilibrada para precisão de mira
   public mouseSensitivity: number = 0.0022;
 
-  // Offset Clássico Over-The-Shoulder do RE4 (Sobre o ombro direito, Operador no terço inferior esquerdo)
-  // X = +0.55 (câmera deslocada à direita, liberando 100% o centro da tela e os alvos)
-  // Y = 1.65 (altura dos ombros/olhos)
-  // Z = 1.70 (câmera recuada a 1.7m, enquadrando perfeitamente no terço inferior esquerdo)
-  private readonly normalOffset = new THREE.Vector3(0.55, 1.65, 1.70);
-  private readonly normalFOV = 60;
+  // Offset Over-The-Shoulder estilo RE4 Remake / PS5 (Sobre o ombro direito, Operador no terço esquerdo)
+  // X = +0.45 (enquadra braço direito, empunhadura dupla e pistola claramente à esquerda da mira central)
+  // Y = 1.59 (altura ideal sobre o ombro direito, alinhada ao ferrolho/Red-Dot da pistola)
+  // Z = 1.42 (proximidade cinematográfica next-gen destacando o colete e a arma sem obstruir os alvos)
+  private readonly normalOffset = new THREE.Vector3(0.45, 1.59, 1.42);
+  private readonly normalFOV = 58;
 
   // Modo de Mira Focada (ADS - botão direito do mouse)
-  private readonly adsOffset = new THREE.Vector3(0.38, 1.58, 1.15);
-  private readonly adsFOV = 45;
+  private readonly adsOffset = new THREE.Vector3(0.33, 1.53, 0.88);
+  private readonly adsFOV = 42;
 
   // Vetores de Interpolação
   private currentOffset = new THREE.Vector3();
