@@ -361,14 +361,16 @@ export class Player {
             if (mesh.name === 'avaturn_look_0' && mesh.material) {
               const lookMat = mesh.material as THREE.MeshStandardMaterial;
               lookMat.map = tacticalOutfitTex;
+              lookMat.roughnessMap = null;
+              lookMat.metalnessMap = null;
               if (lookMat.normalMap) {
-                lookMat.normalScale = new THREE.Vector2(1.35, 1.35);
+                lookMat.normalScale = new THREE.Vector2(0.55, 0.55);
               }
               if (lookMat.aoMap) {
                 lookMat.aoMapIntensity = 0.85;
               }
-              lookMat.roughness = 0.72;
-              lookMat.metalness = 0.14;
+              lookMat.roughness = 0.85;
+              lookMat.metalness = 0.04;
               lookMat.needsUpdate = true;
 
               // Ajuste geométrico da roupa:
@@ -412,25 +414,15 @@ export class Player {
                   let y = origY[i];
                   let z = origZ[i];
 
-                  // 1. Remoção total da touca (hood) na região cervical/costas superior com feathering suave nos ombros
-                  if (y > 1.30 && Math.abs(x) < 0.24) {
+                  // 1. Ajuste anatômico da gola tática na base da nuca (sem esmagar a touca sobre o pescoço)
+                  if (y > 1.34 && y <= 1.43 && Math.abs(x) < 0.22 && z < -0.02) {
                     const ax = Math.abs(x);
-                    const ux = ax <= 0.14 ? 1.0 : Math.max(0.0, 1.0 - (ax - 0.14) / 0.10);
+                    const ux = ax <= 0.14 ? 1.0 : Math.max(0.0, 1.0 - (ax - 0.14) / 0.08);
                     const wx = ux * ux * (3.0 - 2.0 * ux);
-                    if (z < -0.02) {
-                      const t = Math.min(1.0, (y - 1.30) / 0.09);
-                      const maxBackZ = -0.140 * (1.0 - t) + (-0.080) * t;
-                      if (z < maxBackZ) {
-                        z = z * (1.0 - wx) + maxBackZ * wx;
-                      }
-                    }
-                    if (y > 1.44) {
-                      const targetY = 1.44 + (y - 1.44) * 0.10;
-                      y = y * (1.0 - wx) + targetY * wx;
-                      x *= 1.0 - 0.12 * wx;
-                      if (z < -0.078) {
-                        z = z * (1.0 - wx) + (-0.078) * wx;
-                      }
+                    const t = Math.min(1.0, (y - 1.34) / 0.08);
+                    const collarBackZ = -0.162 * (1.0 - t) + (-0.152) * t;
+                    if (z < collarBackZ) {
+                      z = z * (1.0 - wx) + collarBackZ * wx;
                     }
                   }
 
@@ -463,13 +455,31 @@ export class Player {
                   posAttr.setXYZ(i, x, y, z);
                 }
 
-                // 4. Suavização Laplaciana topológica (4 iterações) para eliminar vincos e degraus residuais na cintura e nuca
+                // 4. Remove os triângulos da touca (hood: origY > 1.425 na região cervical) para criar uma gola tática limpa sem triângulos esmagados
                 if (indexAttr) {
-                  const adj = Array.from({ length: groupVerts.length }, () => new Set<number>());
+                  const cleanIndices: number[] = [];
                   for (let i = 0; i < indexAttr.count; i += 3) {
-                    const a = vertGroup[indexAttr.getX(i)];
-                    const b = vertGroup[indexAttr.getX(i + 1)];
-                    const c = vertGroup[indexAttr.getX(i + 2)];
+                    const a = indexAttr.getX(i);
+                    const b = indexAttr.getX(i + 1);
+                    const c = indexAttr.getX(i + 2);
+                    const isHoodA = origY[a] > 1.422 && Math.abs(origX[a]) < 0.195;
+                    const isHoodB = origY[b] > 1.422 && Math.abs(origX[b]) < 0.195;
+                    const isHoodC = origY[c] > 1.422 && Math.abs(origX[c]) < 0.195;
+                    if (!isHoodA && !isHoodB && !isHoodC) {
+                      cleanIndices.push(a, b, c);
+                    }
+                  }
+                  mesh.geometry.setIndex(cleanIndices);
+                }
+
+                // 5. Suavização Laplaciana topológica na cintura e barra da calça
+                const updatedIndexAttr = mesh.geometry?.index;
+                if (updatedIndexAttr) {
+                  const adj = Array.from({ length: groupVerts.length }, () => new Set<number>());
+                  for (let i = 0; i < updatedIndexAttr.count; i += 3) {
+                    const a = vertGroup[updatedIndexAttr.getX(i)];
+                    const b = vertGroup[updatedIndexAttr.getX(i + 1)];
+                    const c = vertGroup[updatedIndexAttr.getX(i + 2)];
                     if (a !== b) { adj[a].add(b); adj[b].add(a); }
                     if (b !== c) { adj[b].add(c); adj[c].add(b); }
                     if (c !== a) { adj[c].add(a); adj[a].add(c); }
@@ -484,13 +494,10 @@ export class Player {
                       const gz = posAttr.getZ(rep);
                       const ox = origX[rep];
                       const oy = origY[rep];
-                      const oz = origZ[rep];
 
                       let alpha = 0;
                       if (oy > 0.75 && oy < 1.24 && Math.abs(ox) < 0.24) {
                         alpha = 0.55 * Math.sin(((oy - 0.75) / 0.49) * Math.PI);
-                      } else if (oy >= 1.24 && oy < 1.60 && Math.abs(ox) < 0.20 && oz < 0.02) {
-                        alpha = 0.45;
                       } else if (oy < 0.20 && oy > 0.105) {
                         alpha = 0.35;
                       }
@@ -517,10 +524,7 @@ export class Player {
                     for (let g = 0; g < groupVerts.length; g++) {
                       const nx = nextGroupPos[g * 3];
                       const ny = nextGroupPos[g * 3 + 1];
-                      let nz = nextGroupPos[g * 3 + 2];
-                      if (ny > 1.40 && Math.abs(nx) < 0.24 && nz < -0.082) {
-                        nz = -0.082;
-                      }
+                      const nz = nextGroupPos[g * 3 + 2];
                       for (const vi of groupVerts[g]) {
                         posAttr.setXYZ(vi, nx, ny, nz);
                       }
@@ -548,42 +552,32 @@ export class Player {
                   const nz = normAttr ? normAttr.getZ(i) : 0;
                   const ax = Math.abs(x);
 
-                  // Retrai o tronco, costas, ombros, braços cobertos pelas mangas e pernas para nunca atravessar a roupa tática
-                  if (y > 1.30 && y < 1.49 && ax < 0.22 && z < -0.02) {
-                    const t = Math.min(1.0, (y - 1.30) / 0.10);
-                    const limitZ = -0.148 * (1.0 - t) + (-0.090) * t;
-                    if (z < limitZ) z = limitZ;
-                  }
-                  if (y > 0.16 && y < 1.43 && ax <= 0.26) {
+                  // Retrai apenas o tronco/pernas/braços cobertos pela roupa (preservando 100% da anatomia natural do pescoço y >= 1.38)
+                  if (y > 0.16 && y < 1.38 && ax <= 0.26) {
                     x *= 0.84;
                     z *= 0.84;
-                  } else if (y > 0.96 && y < 1.50 && ax > 0.20 && ax < 0.64) {
-                    // Braços e ombros sob a manga longa tática: retrai ao longo da normal para zero clipping nos ombros/cotovelos
+                  } else if (y > 0.96 && y < 1.48 && ax > 0.19 && ax < 0.64) {
                     const wArm = ax < 0.58 ? 1.0 : Math.max(0.0, (0.64 - ax) / 0.06);
-                    x -= nx * 0.020 * wArm;
-                    z -= nz * 0.020 * wArm;
+                    x -= nx * 0.022 * wArm;
+                    z -= nz * 0.022 * wArm;
                   }
 
                   posAttr.setXYZ(i, x, y, z);
 
-                  // 1. Tornozelos e pés (y < 0.26): meia/bota tática escura
-                  // 2. Mãos e dedos (ax >= 0.54 e y < 1.50): Luvas Táticas de Tiro em couro/carbono escuro com reforço nos nós dos dedos
-                  // 3. Tronco, pernas e braços sob a roupa: tecido base escuro
-                  // 4. Cabeça e pescoço (y >= 1.43 e ax < 0.18): pele natural 100% preservada
                   if (y < 0.26) {
-                    colors[i * 3] = 0.06;
-                    colors[i * 3 + 1] = 0.07;
-                    colors[i * 3 + 2] = 0.09;
-                  } else if (ax >= 0.54 && y < 1.50) {
-                    // Luvas táticas de combate (carbono fosco com leve contraste nos dedos)
-                    const knuckleShade = ax > 0.72 ? 0.18 : 0.13;
-                    colors[i * 3] = knuckleShade;
-                    colors[i * 3 + 1] = knuckleShade + 0.015;
-                    colors[i * 3 + 2] = knuckleShade + 0.03;
-                  } else if ((y < 1.43 && ax < 0.54) || (y < 1.48 && ax > 0.18 && ax < 0.54)) {
-                    colors[i * 3] = 0.08;
-                    colors[i * 3 + 1] = 0.10;
-                    colors[i * 3 + 2] = 0.11;
+                    colors[i * 3] = 0.012;
+                    colors[i * 3 + 1] = 0.024;
+                    colors[i * 3 + 2] = 0.045;
+                  } else if (ax >= 0.50 && y < 1.50) {
+                    // Luvas táticas de combate (neutraliza o canal vermelho da textura de pele em espaço linear-sRGB para carbono fosco)
+                    const knuckleBoost = ax > 0.68 ? 1.35 : 1.0;
+                    colors[i * 3] = 0.014 * knuckleBoost;
+                    colors[i * 3 + 1] = 0.034 * knuckleBoost;
+                    colors[i * 3 + 2] = 0.068 * knuckleBoost;
+                  } else if ((y < 1.36 && ax < 0.50) || (y < 1.46 && ax > 0.18 && ax < 0.50)) {
+                    colors[i * 3] = 0.015;
+                    colors[i * 3 + 1] = 0.030;
+                    colors[i * 3 + 2] = 0.050;
                   } else {
                     colors[i * 3] = 1.0;
                     colors[i * 3 + 1] = 1.0;
@@ -1211,6 +1205,31 @@ export class Player {
       }
     }
 
+    // =========================================================================
+    // 6. PROTETORES DE NÓS DOS DEDOS E PUNHOS DAS LUVAS TÁTICAS (RightHand & LeftHand)
+    // =========================================================================
+    for (const [handName, sideSign] of [['RightHand', 1], ['LeftHand', -1]] as const) {
+      const handBone = this.bones[handName];
+      if (!handBone) continue;
+
+      // Punho tático em Velcro no pulso
+      const wristCuff = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.033, 0.035, 0.036, 14),
+        corduraDarkMat
+      );
+      wristCuff.position.set(0, 0.008, 0);
+      wristCuff.scale.set(0.82, 1.0, 1.12);
+      handBone.add(wristCuff);
+
+      // Placa dorsal de fibra de carbono sobre o metacarpo/nós dos dedos
+      const dorsalGuard = new THREE.Mesh(
+        new THREE.BoxGeometry(0.016, 0.056, 0.072),
+        kydexPolymerMat
+      );
+      dorsalGuard.position.set(sideSign * 0.018, 0.052, 0.002);
+      handBone.add(dorsalGuard);
+    }
+
     // Restaura a rotação original do modelo (Math.PI)
     this.leonModel.rotation.y = savedRotY;
     this.leonModel.updateMatrixWorld(true);
@@ -1443,14 +1462,14 @@ export class Player {
     const lForeArm = this.bones['LeftForeArm'];
     const lHand = this.bones['LeftHand'];
 
-    // Contrabalanço orgânico das clavículas durante a marcha
+    // Contrabalanço orgânico das clavículas durante a marcha (ombro direito encaixado baixo para liberar a visão OTS da arma)
     const shoulderWave = Math.sin(this.walkCycle) * 0.018 * this.walkWeight;
     if (rShoulder) {
-      rShoulder.rotation.z += -0.15 + shoulderWave;
+      rShoulder.rotation.z += -0.26 + shoulderWave;
     }
     if (lShoulder) {
-      lShoulder.rotation.z += 0.38 - shoulderWave;
-      lShoulder.rotation.y += -0.05;
+      lShoulder.rotation.z += 0.34 - shoulderWave;
+      lShoulder.rotation.y += -0.08;
     }
 
     // Pose inicial anatômica antes do ajuste analítico de 2 ossos
@@ -1468,13 +1487,13 @@ export class Player {
       Math.sin(this.idleBreathCycle) * 0.003 * (1.0 - this.walkWeight);
     const swayZ = Math.cos(this.walkCycle * 2) * 0.005 * this.walkWeight;
 
-    // Coordenada alvo da empunhadura no espaço local do rootGroup (alinhada ao olho/ombro direito + recuo + sway)
+    // Coordenada alvo da empunhadura no espaço local do rootGroup (acima da linha do ombro direito para visão 100% livre das mãos e da pistola)
     const gripLocal = new THREE.Vector3(
-      0.168 + swayX,
-      1.405 + Math.sin(pitch) * 0.25 + this.recoilPitch * 0.14 + swayY,
-      -0.360 * Math.cos(pitch) + this.recoilZ + swayZ
+      0.215 + swayX,
+      1.468 + Math.sin(pitch) * 0.25 + this.recoilPitch * 0.14 + swayY,
+      -0.385 * Math.cos(pitch) + this.recoilZ + swayZ
     );
-    const lGripLocal = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.005, 0.008));
+    const lGripLocal = gripLocal.clone().add(new THREE.Vector3(-0.014, -0.006, 0.008));
 
     // Animação Esquelética de Recarga Tática ('R')
     let reloadRoll = 0;
@@ -1483,25 +1502,25 @@ export class Player {
     if (this.isReloading) {
       const p = this.reloadProgress;
       const env = Math.sin(p * Math.PI);
-      // Mão direita aproxima e inclina a pistola para exibir claramente o magwell e o ferrolho na câmera OTS
-      gripLocal.x -= 0.022 * env;
-      gripLocal.y += 0.028 * env;
-      gripLocal.z += 0.035 * env;
-      reloadRoll = 0.48 * env;
-      reloadPitchOffset = 0.20 * env;
+      // Mão direita eleva e inclina a pistola no corredor OTS para exibir claramente o magwell, o carregador e o ferrolho
+      gripLocal.x += 0.018 * env;
+      gripLocal.y += 0.042 * env;
+      gripLocal.z += 0.045 * env;
+      reloadRoll = 0.56 * env;
+      reloadPitchOffset = 0.26 * env;
 
       // Impulso mecânico ao encaixar o carregador novo (p ~ 0.58)
       if (p > 0.52 && p < 0.66) {
         const jolt = Math.sin(((p - 0.52) / 0.14) * Math.PI);
-        gripLocal.y += 0.018 * jolt;
+        gripLocal.y += 0.022 * jolt;
       }
 
       // Trajetória da mão esquerda: Empunhadura -> Porta-Carregador no Cinto -> Magwell da Pistola -> Ferrolho -> Empunhadura
       const beltPouchLocal = new THREE.Vector3(-0.185, 0.94, -0.02);
-      const magwellEntryLocal = gripLocal.clone().add(new THREE.Vector3(-0.015, -0.085, 0.025));
-      const magwellSeatedLocal = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.022, 0.010));
-      const slideRackLocal = gripLocal.clone().add(new THREE.Vector3(-0.014, 0.068, 0.042));
-      const baseLeftGrip = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.005, 0.008));
+      const magwellEntryLocal = gripLocal.clone().add(new THREE.Vector3(-0.022, -0.095, 0.025));
+      const magwellSeatedLocal = gripLocal.clone().add(new THREE.Vector3(-0.014, -0.022, 0.010));
+      const slideRackLocal = gripLocal.clone().add(new THREE.Vector3(-0.016, 0.072, 0.042));
+      const baseLeftGrip = gripLocal.clone().add(new THREE.Vector3(-0.014, -0.006, 0.008));
 
       if (p < 0.28) {
         // Fase 1: Mão esquerda desce até o porta-carregador no cinto tático; carregador antigo desliza
@@ -1531,7 +1550,7 @@ export class Player {
         const u = THREE.MathUtils.smoothstep(p, 0.68, 0.84);
         const arc = Math.sin(u * Math.PI);
         lGripLocal.lerpVectors(magwellSeatedLocal, slideRackLocal, arc);
-        this.slideBlowback = Math.max(this.slideBlowback, 0.040 * arc);
+        this.slideBlowback = Math.max(this.slideBlowback, 0.042 * arc);
         if (this.magazineMesh) {
           this.magazineMesh.position.set(0, -0.035, 0.005);
         }
@@ -1547,9 +1566,9 @@ export class Player {
       this.magazineMesh.position.set(0, -0.035, 0.005);
     }
 
-    // Pole vectors anatômicos para orientar os cotovelos naturalmente para baixo/fora
-    const rPoleLocal = new THREE.Vector3(0.42, 1.24 + Math.sin(pitch) * 0.15, -0.10);
-    const lPoleLocal = new THREE.Vector3(-0.24, 1.18 + Math.sin(pitch) * 0.15, -0.18);
+    // Pole vectors anatômicos com cotovelo direito encaixado para baixo (permite ver antebraço, luvas e pistola por inteiro)
+    const rPoleLocal = new THREE.Vector3(0.20, 0.92 + Math.sin(pitch) * 0.12, -0.16);
+    const lPoleLocal = new THREE.Vector3(-0.22, 0.96 + Math.sin(pitch) * 0.12, -0.16);
 
     const gripWorld = gripLocal.applyMatrix4(this.rootGroup.matrixWorld);
     const lGripWorld = lGripLocal.applyMatrix4(this.rootGroup.matrixWorld);
@@ -1563,9 +1582,9 @@ export class Player {
       this.solveTwoBoneIK(lArm, lForeArm, lHand, lGripWorld, lPoleWorld);
     }
 
-    // Alinha a orientação global das mãos para cravar o cano da pistola exatamente na direção do Pitch da mira
+    // Alinha a orientação global das mãos para cravar o cano da pistola na direção do Pitch da mira com leve convergência OTS
     const qPitch = new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(pitch + this.recoilPitch * 0.65 + reloadPitchOffset, 0, reloadRoll, 'YXZ')
+      new THREE.Euler(pitch + this.recoilPitch * 0.65 + reloadPitchOffset, -0.04, reloadRoll, 'YXZ')
     );
     if (rHand) {
       const qTargetRH = this.rootGroup.quaternion
