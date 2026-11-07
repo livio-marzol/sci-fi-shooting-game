@@ -111,8 +111,9 @@ export class WeaponSystem {
     // Processamento do Raycast de tiro
     this.executeHitscanShot();
 
-    // Auto-recarga se zerar a munição
+    // Auto-recarga e trava do ferrolho aberto se zerar a munição
     if (this.currentAmmo <= 0) {
+      this.player.isSlideLocked = true;
       setTimeout(() => {
         if (!this.isReloading && this.currentAmmo <= 0) {
           this.startReload();
@@ -122,13 +123,14 @@ export class WeaponSystem {
   }
 
   /**
-   * Inicia a sequência de recarga da célula de energia
+   * Inicia a sequência de recarga da célula de energia / carregador tático
    */
   public startReload() {
     if (this.isReloading || this.currentAmmo === this.maxAmmo) return;
 
     this.isReloading = true;
     this.reloadTimer = this.reloadDuration;
+    this.player.setReloadState(true, 0);
     this.audioSystem.playReload();
 
     if (this.onAmmoChanged) {
@@ -266,12 +268,19 @@ export class WeaponSystem {
       this.fireCooldown -= delta;
     }
 
-    // Processamento de Recarga
+    // Processamento de Recarga e sincronização da animação tática das mãos no Player
     if (this.isReloading) {
       this.reloadTimer -= delta;
+      const progress = THREE.MathUtils.clamp(1.0 - this.reloadTimer / this.reloadDuration, 0, 1);
+      this.player.setReloadState(true, progress);
+      if (progress > 0.78) {
+        this.player.isSlideLocked = false;
+      }
       if (this.reloadTimer <= 0) {
         this.isReloading = false;
         this.currentAmmo = this.maxAmmo;
+        this.player.isSlideLocked = false;
+        this.player.setReloadState(false, 0);
         if (this.onAmmoChanged) {
           this.onAmmoChanged(this.currentAmmo, this.maxAmmo, false);
         }

@@ -43,15 +43,24 @@ export class Player {
   private slideBlowback = 0;
   public isSlideLocked = false;
 
-  // Locomoção Procedural e Respiração
+  // Locomoção Procedural Biomecânica 8-Direções, Inércia e Respiração
   private walkCycle = 0;
   private walkWeight = 0;
   private isMoving = false;
   private lastMoveDir = new THREE.Vector2(0, -1);
   private currentMoveDir = new THREE.Vector2(0, -1);
   private targetMoveDir = new THREE.Vector2(0, -1);
+  private currentHipDirYaw = 0;
+  private velX = 0;
+  private velZ = 0;
+  private leanX = 0;
+  private leanZ = 0;
   private idleBreathCycle = 0;
   private muzzleFlashTimer = 0;
+
+  // Estado da Animação Esquelética de Recarga Tática ('R')
+  public isReloading = false;
+  public reloadProgress = 0;
 
   // Armas e Acessórios Next-Gen (Pistola com Ferrolho Blowback, Red-Dot, Carregador e Laser Tático)
   private handgunMesh!: THREE.Group;
@@ -1256,7 +1265,7 @@ export class Player {
       head.rotation.y += 0.08;
     }
 
-    // 2. Sistema de Marcha Humana Biomecânica (Human Gait Cycle)
+    // 2. Sistema de Marcha Humana Biomecânica em 8 Direções (8-Way Next-Gen Gait Cycle)
     const hips = this.bones['Hips'];
     const lUpLeg = this.bones['LeftUpLeg'];
     const rUpLeg = this.bones['RightUpLeg'];
@@ -1267,17 +1276,17 @@ export class Player {
     const lToe = this.bones['LeftToeBase'];
     const rToe = this.bones['RightToeBase'];
 
-    // Postura base em repouso (Combat Idle Stance) com solas 100% paralelas ao chão:
-    // No rig leon.glb, para manter a sola paralela ao solo (worldPitch = 0), footX = thighX - kneeX.
+    // Base Atlética Tática Afastada (Solas 100% paralelas ao solo e pernas com abertura natural de ombros)
+    // No rig leon.glb, +idleLThighZ e -idleRThighZ abrem as pernas lateralmente (afastamento ~0.30m)
     const idleLThighX = -0.06;
     const idleRThighX = 0.06;
     const idleLKneeX = -0.10;
     const idleRKneeX = -0.10;
-    const idleLThighZ = 0.035;
-    const idleRThighZ = -0.035;
+    const idleLThighZ = 0.064;
+    const idleRThighZ = -0.064;
 
     // Componentes direcionais normalizados
-    const fwdSign = dirZ <= 0 ? 1 : -1; // +1 ao avançar (W), -1 ao recuar (S)
+    const fwdSign = dirZ <= 0 ? 1 : -1; // +1 ao avançar/strafe (W/A/D), -1 ao recuar (S)
     const fwdAmount = Math.abs(dirZ);
     const strafeAmount = Math.abs(dirX);
     const totalMove = Math.min(1.0, Math.hypot(dirX, dirZ));
@@ -1294,47 +1303,48 @@ export class Player {
     const cosR = Math.cos(phaseR);
     const sin2R = Math.sin(2 * phaseR);
 
-    // Janela harmônica contínua C-infinito de 4ª ordem centrada na passagem sob o quadril (swing),
-    // mantendo a perna de apoio (stance) firme no solo durante toda a fase de suporte (110°..250°)
+    // Janela harmônica contínua C-infinito de 4ª ordem centrada na passagem aérea (swing)
     const uSwingL = 0.5 * (1.0 + Math.cos(phaseL - 0.10));
     const uSwingR = 0.5 * (1.0 + Math.cos(phaseR - 0.10));
     const lSwing = uSwingL * uSwingL * uSwingL * uSwingL;
     const rSwing = uSwingR * uSwingR * uSwingR * uSwingR;
 
-    // Amortecimento localizado no início do apoio logo após o toque do calcanhar (~125°)
+    // Amortecimento elástico no início do apoio (heel-strike cushion)
     const uCushionL = 0.5 * (1.0 + Math.cos(phaseL - 2.18));
     const uCushionR = 0.5 * (1.0 + Math.cos(phaseR - 2.18));
-    const lStanceCushion = 0.05 * (uCushionL * uCushionL * uCushionL * uCushionL);
-    const rStanceCushion = 0.05 * (uCushionR * uCushionR * uCushionR * uCushionR);
+    const lStanceCushion = 0.06 * (uCushionL * uCushionL * uCushionL * uCushionL);
+    const rStanceCushion = 0.06 * (uCushionR * uCushionR * uCushionR * uCushionR);
 
-    // A. Coxas (UpLeg): Harmônicos suaves de marcha humana (passada equilibrada sem flutuar os pés)
-    const lThighFwd = (-0.28 * sinL - 0.03 * cosL - 0.02 * sin2L) * fwdAmount;
-    const rThighFwd = (-0.28 * sinR - 0.03 * cosR - 0.02 * sin2R) * fwdAmount;
-    const lThighStrafeX = (-0.18 * lSwing - 0.06 * sinL) * strafeAmount;
-    const rThighStrafeX = (-0.18 * rSwing - 0.06 * sinR) * strafeAmount;
+    // A. Coxas (UpLeg): Como o quadril gira na direção da passada (8-Way Twist),
+    // as pernas executam uma passada dinâmica completa mesmo em diagonais e strafe!
+    const strideDrive = Math.min(1.0, fwdAmount + strafeAmount * 0.68);
+    const lThighFwd = (-0.31 * sinL - 0.035 * cosL - 0.02 * sin2L) * strideDrive;
+    const rThighFwd = (-0.31 * sinR - 0.035 * cosR - 0.02 * sin2R) * strideDrive;
+    const lThighStrafeX = (-0.12 * lSwing - 0.04 * sinL) * strafeAmount;
+    const rThighStrafeX = (-0.12 * rSwing - 0.04 * sinR) * strafeAmount;
 
-    // B. Joelhos (Leg): Flexão natural de ~30° (0.52 rad) na passagem aérea + absorção sutil no apoio
-    const lKneeBend = (0.52 * lSwing + lStanceCushion) * totalMove;
-    const rKneeBend = (0.52 * rSwing + rStanceCushion) * totalMove;
+    // B. Joelhos (Leg): Flexão natural de ~32° (0.56 rad) na passagem aérea + absorção no apoio
+    const lKneeBend = (0.56 * lSwing + lStanceCushion) * totalMove;
+    const rKneeBend = (0.56 * rSwing + rStanceCushion) * totalMove;
 
-    // C. Passada lateral (Strafe Z) suave e sem conflito em diagonais
+    // C. Abdução lateral de passada (Strafe Z) que abre a perna líder sem nunca cruzar/colar as coxas
     const lLatWave = 0.5 * (1.0 + Math.sin(phaseL + 0.35));
     const rLatWave = 0.5 * (1.0 + Math.sin(phaseR + 0.35));
     let lThighStrafeZ = 0;
     let rThighStrafeZ = 0;
     if (dirX < 0) {
-      lThighStrafeZ = 0.18 * lLatWave * strafeAmount;
-      rThighStrafeZ = 0.14 * rLatWave * strafeAmount;
+      lThighStrafeZ = 0.14 * lLatWave * strafeAmount;
+      rThighStrafeZ = -0.04 * rLatWave * strafeAmount;
     } else if (dirX > 0) {
-      rThighStrafeZ = -0.18 * rLatWave * strafeAmount;
-      lThighStrafeZ = -0.14 * lLatWave * strafeAmount;
+      rThighStrafeZ = -0.14 * rLatWave * strafeAmount;
+      lThighStrafeZ = 0.04 * lLatWave * strafeAmount;
     }
 
-    // Interpolação entre repouso e caminhada ativa para coxa e joelho
+    // Interpolação entre repouso atlético e caminhada ativa para coxa e joelho
     const activeLThighX = lThighFwd + lThighStrafeX;
     const activeRThighX = rThighFwd + rThighStrafeX;
-    const activeLKneeX = -0.04 - lKneeBend;
-    const activeRKneeX = -0.04 - rKneeBend;
+    const activeLKneeX = -0.05 - lKneeBend;
+    const activeRKneeX = -0.05 - rKneeBend;
 
     const targetLThighX = THREE.MathUtils.lerp(idleLThighX, activeLThighX, this.walkWeight);
     const targetRThighX = THREE.MathUtils.lerp(idleRThighX, activeRThighX, this.walkWeight);
@@ -1345,27 +1355,32 @@ export class Player {
     const targetRKneeX = THREE.MathUtils.lerp(idleRKneeX, activeRKneeX, this.walkWeight);
 
     // D. Pés e Tornozelos (Foot & ToeBase):
-    // Compensação cinemática exata (targetThighX - targetKneeX) mantém a sola 100% paralela ao chão no apoio,
-    // somada à rolagem natural calcanhar-ponta (dorsiflexão suave no heel-strike e impulsão plantar no toe-off).
-    const lSolePitch = (0.08 * Math.sin(phaseL - 0.35) - 0.05 * (1.0 - cosL) * (1.0 - lSwing)) * fwdAmount + 0.05 * lSwing * strafeAmount;
-    const rSolePitch = (0.08 * Math.sin(phaseR - 0.35) - 0.05 * (1.0 - cosR) * (1.0 - rSwing)) * fwdAmount + 0.05 * rSwing * strafeAmount;
+    // Compensação cinemática exata (targetThighX - targetKneeX) + rolagem calcanhar-ponta
+    const lSolePitch =
+      (0.09 * Math.sin(phaseL - 0.35) - 0.055 * (1.0 - cosL) * (1.0 - lSwing)) * strideDrive +
+      0.04 * lSwing * strafeAmount;
+    const rSolePitch =
+      (0.09 * Math.sin(phaseR - 0.35) - 0.055 * (1.0 - cosR) * (1.0 - rSwing)) * strideDrive +
+      0.04 * rSwing * strafeAmount;
 
-    const targetLFootX = (targetLThighX - targetLKneeX) + lSolePitch * this.walkWeight;
-    const targetRFootX = (targetRThighX - targetRKneeX) + rSolePitch * this.walkWeight;
-    const targetLFootZ = -targetLThighZ * 0.65;
-    const targetRFootZ = -targetRThighZ * 0.65;
+    const targetLFootX = targetLThighX - targetLKneeX + lSolePitch * this.walkWeight;
+    const targetRFootX = targetRThighX - targetRKneeX + rSolePitch * this.walkWeight;
+    const targetLFootZ = -targetLThighZ * 0.68;
+    const targetRFootZ = -targetRThighZ * 0.68;
 
     // Dobramento natural da ponta do pé (ToeBase) na fase de impulsão traseira (toe-off)
-    const lToeBend = 0.14 * (0.5 * (1.0 - sinL)) * (1.0 - lSwing) * this.walkWeight * totalMove;
-    const rToeBend = 0.14 * (0.5 * (1.0 - sinR)) * (1.0 - rSwing) * this.walkWeight * totalMove;
+    const lToeBend = 0.16 * (0.5 * (1.0 - sinL)) * (1.0 - lSwing) * this.walkWeight * totalMove;
+    const rToeBend = 0.16 * (0.5 * (1.0 - sinR)) * (1.0 - rSwing) * this.walkWeight * totalMove;
 
     if (lUpLeg) {
       lUpLeg.rotation.x += targetLThighX;
       lUpLeg.rotation.z += targetLThighZ;
+      lUpLeg.rotation.y += -0.05; // Leve rotação externa atlética do joelho/ponta do pé
     }
     if (rUpLeg) {
       rUpLeg.rotation.x += targetRThighX;
       rUpLeg.rotation.z += targetRThighZ;
+      rUpLeg.rotation.y += 0.05;
     }
     if (lLeg) {
       lLeg.rotation.x += targetLKneeX;
@@ -1376,10 +1391,12 @@ export class Player {
     if (lFoot) {
       lFoot.rotation.x += targetLFootX;
       lFoot.rotation.z += targetLFootZ;
+      lFoot.rotation.y += 0.03;
     }
     if (rFoot) {
       rFoot.rotation.x += targetRFootX;
       rFoot.rotation.z += targetRFootZ;
+      rFoot.rotation.y += -0.03;
     }
     if (lToe) {
       lToe.rotation.x += lToeBend;
@@ -1388,25 +1405,35 @@ export class Player {
       rToe.rotation.x += rToeBend;
     }
 
-    // E. Dinâmica Pélvica Humana (Hips) com assentamento plantar contínuo e Compensação Angular na Coluna
-    const hipBob = (-0.005 + 0.008 * Math.cos(this.walkCycle * 2)) * this.walkWeight - 0.003 * (1.0 - this.walkWeight);
-    const hipRollZ = Math.sin(this.walkCycle) * 0.024 * this.walkWeight;
-    const hipYawY = -Math.sin(this.walkCycle) * 0.038 * this.walkWeight * fwdAmount;
+    // E. Dinâmica Pélvica 8-Direções (Hips), Transferência Lateral de Peso e Inclinação de Inércia (Velocity Lean)
+    const hipBob =
+      (-0.006 + 0.011 * Math.cos(this.walkCycle * 2)) * this.walkWeight -
+      0.003 * (1.0 - this.walkWeight);
+    const hipLatShiftX = -Math.sin(this.walkCycle) * 0.016 * this.walkWeight;
+    const hipRollZ = Math.sin(this.walkCycle) * 0.032 * this.walkWeight + this.leanZ * 0.35;
+    const hipStepYaw = -Math.sin(this.walkCycle) * 0.048 * this.walkWeight * strideDrive;
+    const totalHipYaw = this.currentHipDirYaw * this.walkWeight + hipStepYaw;
 
     if (hips) {
       hips.position.y += hipBob;
+      hips.position.x += hipLatShiftX;
       hips.rotation.z += hipRollZ;
-      hips.rotation.y += hipYawY;
+      hips.rotation.y += totalHipYaw;
+      hips.rotation.x += this.leanX * 0.35;
     }
 
-    // Compensação puramente angular na Spine (mantém a cintura íntegra sem efeito sanfona e estabiliza a mira)
+    // Compensação angular distribuída na coluna (Spine e Spine1) para manter o peito e a mira cravados no alvo
     if (spine) {
-      spine.rotation.z -= hipRollZ;
-      spine.rotation.y -= hipYawY;
+      spine.rotation.z += -hipRollZ * 0.65 + this.leanZ * 0.35;
+      spine.rotation.y += -totalHipYaw * 0.55;
+      spine.rotation.x += this.leanX * 0.45;
+    }
+    if (spine1) {
+      spine1.rotation.z += -hipRollZ * 0.35;
+      spine1.rotation.y += -totalHipYaw * 0.45;
     }
 
-    // 3. Cinemática Inversa de 2 Ossos (Two-Bone IK) para Apresentação Over-The-Shoulder Realista
-    // Posiciona a pistola e a empunhadura dupla em x = +0.168m (no corredor visual limpo à direita da cabeça e sobre o ombro direito)
+    // 3. Cinemática Inversa de 2 Ossos (Two-Bone IK) + Weapon Sway + Animação Tática de Recarga ('R')
     const rShoulder = this.bones['RightShoulder'];
     const lShoulder = this.bones['LeftShoulder'];
     const rArm = this.bones['RightArm'];
@@ -1416,9 +1443,13 @@ export class Player {
     const lForeArm = this.bones['LeftForeArm'];
     const lHand = this.bones['LeftHand'];
 
-    if (rShoulder) rShoulder.rotation.z += -0.15;
+    // Contrabalanço orgânico das clavículas durante a marcha
+    const shoulderWave = Math.sin(this.walkCycle) * 0.018 * this.walkWeight;
+    if (rShoulder) {
+      rShoulder.rotation.z += -0.15 + shoulderWave;
+    }
     if (lShoulder) {
-      lShoulder.rotation.z += 0.38;
+      lShoulder.rotation.z += 0.38 - shoulderWave;
       lShoulder.rotation.y += -0.05;
     }
 
@@ -1428,17 +1459,97 @@ export class Player {
 
     this.rootGroup.updateMatrixWorld(true);
 
-    // Coordenada alvo da empunhadura no espaço local do rootGroup (alinhada ao olho/ombro direito + recuo dinâmico)
+    // Micro-oscilação orgânica em Figura-8 (Lissajous Weapon Sway) sincronizada com os passos e respiração
+    const swayX =
+      Math.cos(this.walkCycle) * 0.008 * this.walkWeight +
+      Math.sin(this.idleBreathCycle * 0.5) * 0.002 * (1.0 - this.walkWeight);
+    const swayY =
+      Math.sin(this.walkCycle * 2) * 0.009 * this.walkWeight +
+      Math.sin(this.idleBreathCycle) * 0.003 * (1.0 - this.walkWeight);
+    const swayZ = Math.cos(this.walkCycle * 2) * 0.005 * this.walkWeight;
+
+    // Coordenada alvo da empunhadura no espaço local do rootGroup (alinhada ao olho/ombro direito + recuo + sway)
     const gripLocal = new THREE.Vector3(
-      0.168,
-      1.405 + Math.sin(pitch) * 0.25 + this.recoilPitch * 0.14,
-      -0.360 * Math.cos(pitch) + this.recoilZ
+      0.168 + swayX,
+      1.405 + Math.sin(pitch) * 0.25 + this.recoilPitch * 0.14 + swayY,
+      -0.360 * Math.cos(pitch) + this.recoilZ + swayZ
     );
     const lGripLocal = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.005, 0.008));
 
+    // Animação Esquelética de Recarga Tática ('R')
+    let reloadRoll = 0;
+    let reloadPitchOffset = 0;
+    let reloadLeftHandYaw = 0;
+    if (this.isReloading) {
+      const p = this.reloadProgress;
+      const env = Math.sin(p * Math.PI);
+      // Mão direita aproxima e inclina a pistola para exibir claramente o magwell e o ferrolho na câmera OTS
+      gripLocal.x -= 0.022 * env;
+      gripLocal.y += 0.028 * env;
+      gripLocal.z += 0.035 * env;
+      reloadRoll = 0.48 * env;
+      reloadPitchOffset = 0.20 * env;
+
+      // Impulso mecânico ao encaixar o carregador novo (p ~ 0.58)
+      if (p > 0.52 && p < 0.66) {
+        const jolt = Math.sin(((p - 0.52) / 0.14) * Math.PI);
+        gripLocal.y += 0.018 * jolt;
+      }
+
+      // Trajetória da mão esquerda: Empunhadura -> Porta-Carregador no Cinto -> Magwell da Pistola -> Ferrolho -> Empunhadura
+      const beltPouchLocal = new THREE.Vector3(-0.185, 0.94, -0.02);
+      const magwellEntryLocal = gripLocal.clone().add(new THREE.Vector3(-0.015, -0.085, 0.025));
+      const magwellSeatedLocal = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.022, 0.010));
+      const slideRackLocal = gripLocal.clone().add(new THREE.Vector3(-0.014, 0.068, 0.042));
+      const baseLeftGrip = gripLocal.clone().add(new THREE.Vector3(-0.012, -0.005, 0.008));
+
+      if (p < 0.28) {
+        // Fase 1: Mão esquerda desce até o porta-carregador no cinto tático; carregador antigo desliza
+        const u = THREE.MathUtils.smoothstep(p, 0.0, 0.28);
+        lGripLocal.lerpVectors(baseLeftGrip, beltPouchLocal, u);
+        reloadLeftHandYaw = 0.45 * u;
+        if (this.magazineMesh) {
+          this.magazineMesh.position.set(0, -0.035 - 0.11 * u, 0.005 + 0.025 * u);
+        }
+      } else if (p < 0.55) {
+        // Fase 2: Mão esquerda traz o carregador novo do cinto até a entrada do magwell
+        const u = THREE.MathUtils.smoothstep(p, 0.28, 0.55);
+        lGripLocal.lerpVectors(beltPouchLocal, magwellEntryLocal, u);
+        reloadLeftHandYaw = 0.45 * (1.0 - u);
+        if (this.magazineMesh) {
+          this.magazineMesh.position.set(0, -0.145 + 0.075 * u, 0.030 - 0.015 * u);
+        }
+      } else if (p < 0.68) {
+        // Fase 3: Encaixe firme (Slam) do carregador dentro do punho da pistola
+        const u = THREE.MathUtils.smoothstep(p, 0.55, 0.68);
+        lGripLocal.lerpVectors(magwellEntryLocal, magwellSeatedLocal, u);
+        if (this.magazineMesh) {
+          this.magazineMesh.position.set(0, -0.070 + 0.035 * u, 0.015 - 0.010 * u);
+        }
+      } else if (p < 0.84) {
+        // Fase 4: Mão esquerda sobe ao topo do ferrolho para liberar/ciclar o slide (Slide Release)
+        const u = THREE.MathUtils.smoothstep(p, 0.68, 0.84);
+        const arc = Math.sin(u * Math.PI);
+        lGripLocal.lerpVectors(magwellSeatedLocal, slideRackLocal, arc);
+        this.slideBlowback = Math.max(this.slideBlowback, 0.040 * arc);
+        if (this.magazineMesh) {
+          this.magazineMesh.position.set(0, -0.035, 0.005);
+        }
+      } else {
+        // Fase 5: Retorno suave para a empunhadura dupla Weaver/Isosceles
+        const u = THREE.MathUtils.smoothstep(p, 0.84, 1.0);
+        lGripLocal.lerpVectors(slideRackLocal, baseLeftGrip, u);
+        if (this.magazineMesh) {
+          this.magazineMesh.position.set(0, -0.035, 0.005);
+        }
+      }
+    } else if (this.magazineMesh) {
+      this.magazineMesh.position.set(0, -0.035, 0.005);
+    }
+
     // Pole vectors anatômicos para orientar os cotovelos naturalmente para baixo/fora
     const rPoleLocal = new THREE.Vector3(0.42, 1.24 + Math.sin(pitch) * 0.15, -0.10);
-    const lPoleLocal = new THREE.Vector3(-0.22, 1.20 + Math.sin(pitch) * 0.15, -0.18);
+    const lPoleLocal = new THREE.Vector3(-0.24, 1.18 + Math.sin(pitch) * 0.15, -0.18);
 
     const gripWorld = gripLocal.applyMatrix4(this.rootGroup.matrixWorld);
     const lGripWorld = lGripLocal.applyMatrix4(this.rootGroup.matrixWorld);
@@ -1453,9 +1564,8 @@ export class Player {
     }
 
     // Alinha a orientação global das mãos para cravar o cano da pistola exatamente na direção do Pitch da mira
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      pitch + this.recoilPitch * 0.65
+    const qPitch = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(pitch + this.recoilPitch * 0.65 + reloadPitchOffset, 0, reloadRoll, 'YXZ')
     );
     if (rHand) {
       const qTargetRH = this.rootGroup.quaternion
@@ -1465,9 +1575,12 @@ export class Player {
       this.setBoneWorldQuaternion(rHand, qTargetRH);
     }
     if (lHand) {
+      const qLeftMod = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(pitch + this.recoilPitch * 0.65, reloadLeftHandYaw, reloadRoll * 0.5, 'YXZ')
+      );
       const qTargetLH = this.rootGroup.quaternion
         .clone()
-        .multiply(qPitch)
+        .multiply(qLeftMod)
         .multiply(this.qLeftHandBase);
       this.setBoneWorldQuaternion(lHand, qTargetLH);
     }
@@ -1492,6 +1605,14 @@ export class Player {
       if (t2) t2.rotation.set(0.10, 0, 0.75 * s);
       if (t3) t3.rotation.set(0.05, 0, 0.55 * s);
     }
+  }
+
+  /**
+   * Atualiza o estado e progresso da animação esquelética de recarga tática ('R')
+   */
+  public setReloadState(reloading: boolean, progress: number) {
+    this.isReloading = reloading;
+    this.reloadProgress = progress;
   }
 
   /**
@@ -1594,7 +1715,7 @@ export class Player {
   }
 
   /**
-   * Atualização frame a frame (movimentação WASD na baia, rotação e recuo)
+   * Atualização frame a frame (movimentação WASD em 8 direções, inércia, rotação e recuo)
    */
   public update(delta: number, input: { forward: number; strafe: number; yaw: number; pitch: number }) {
     // 1. Suavização rápida da rotação horizontal (Yaw) do corpo pelo menor arco angular (360° livre)
@@ -1618,6 +1739,8 @@ export class Player {
 
     let dirX = 0;
     let dirZ = 0;
+    let targetVelX = 0;
+    let targetVelZ = 0;
     if (this.isMoving) {
       const localX = moveX / inputLen;
       const localZ = moveZ / inputLen;
@@ -1627,6 +1750,9 @@ export class Player {
       dirX = this.currentMoveDir.x;
       dirZ = this.currentMoveDir.y;
       this.lastMoveDir.copy(this.currentMoveDir);
+
+      targetVelX = localX * this.speed;
+      targetVelZ = localZ * this.speed;
 
       // Transforma o vetor local (WASD) pela orientação horizontal (currentYaw) para o espaço global
       const cosYaw = Math.cos(this.currentYaw);
@@ -1640,6 +1766,26 @@ export class Player {
       dirX = this.lastMoveDir.x;
       dirZ = this.lastMoveDir.y;
     }
+
+    // Cálculo de Inércia Reativa (Velocity Lean) e Orientação Direcional do Quadril em 8 Direções
+    const prevVelX = this.velX;
+    const prevVelZ = this.velZ;
+    this.velX = THREE.MathUtils.lerp(this.velX, targetVelX, Math.min(1.0, 12 * delta));
+    this.velZ = THREE.MathUtils.lerp(this.velZ, targetVelZ, Math.min(1.0, 12 * delta));
+
+    const accelX = (this.velX - prevVelX) / Math.max(0.008, delta);
+    const accelZ = (this.velZ - prevVelZ) / Math.max(0.008, delta);
+
+    // Inclinação física sutil ao acelerar, frear ou inverter strafe
+    const targetLeanX = THREE.MathUtils.clamp(-this.velZ * 0.014 - accelZ * 0.0025, -0.065, 0.065);
+    const targetLeanZ = THREE.MathUtils.clamp(-this.velX * 0.015 - accelX * 0.0025, -0.065, 0.065);
+    this.leanX = THREE.MathUtils.lerp(this.leanX, targetLeanX, Math.min(1.0, 10 * delta));
+    this.leanZ = THREE.MathUtils.lerp(this.leanZ, targetLeanZ, Math.min(1.0, 10 * delta));
+
+    // Orientação do quadril (8-Way Hip Twist): gira a pelve na direção do deslocamento mantendo o tórax no alvo
+    const fwdSign = dirZ <= 0 ? 1 : -1;
+    const targetHipYaw = this.isMoving ? -dirX * fwdSign * 0.42 : 0;
+    this.currentHipDirYaw = THREE.MathUtils.lerp(this.currentHipDirYaw, targetHipYaw, Math.min(1.0, 9 * delta));
 
     // Clamping nos limites do estande (não atravessa o balcão frontal nem as paredes externas/traseira)
     this.rootGroup.position.x = THREE.MathUtils.clamp(this.rootGroup.position.x, this.minX, this.maxX);
@@ -1661,7 +1807,7 @@ export class Player {
     }
 
     // 4. Ciclo de passos e amortecimento suave (Lerp com Damping) ao parar
-    const strideFreq = 6.6; // Cadência humana natural de caminhada tática
+    const strideFreq = 6.8; // Cadência humana dinâmica de caminhada tática
     if (this.isMoving) {
       this.walkCycle = (this.walkCycle + delta * strideFreq) % (Math.PI * 2);
       this.walkWeight = THREE.MathUtils.lerp(this.walkWeight, 1.0, 10 * delta);
@@ -1681,7 +1827,7 @@ export class Player {
       this.leonModel.position.y = 0;
     }
 
-    // 5. Aplica a cinemática esquelética (Mira superior Weaver + Locomoção direcional das pernas)
+    // 5. Aplica a cinemática esquelética (Mira superior Over-The-Shoulder + Locomoção 8-Direções + Recarga)
     this.applyCombatAimPose(this.currentPitch, dirX, dirZ);
 
     // 6. Recuperação suave do recuo da arma e retorno mecânico do ferrolho (Slide Blowback)
