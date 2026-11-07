@@ -66,6 +66,9 @@ export class Player {
     this.muzzleLight = new THREE.PointLight(0x00f0ff, 0, 6);
     this.muzzlePoint.add(this.muzzleLight);
 
+    // Configura iluminação de recorte estilo PS5 acompanhando o personagem
+    this.setupCharacterLighting();
+
     // Cria a pistola tática de combate (Silver Ghost / SG-09 R)
     this.createTacticalWeapons();
 
@@ -75,6 +78,27 @@ export class Player {
     // Adiciona o grupo auxiliar no rootGroup
     this.rootGroup.add(this.weaponGroup);
     scene.add(this.rootGroup);
+  }
+
+  /**
+   * Iluminação cinematográfica de 3 pontos (Rim Light + Key/Fill + Ground Bounce) estilo PS5
+   * acoplada ao rootGroup para destacar o relevo PBR do traje, equipamentos 3D e ferrolho da arma.
+   */
+  private setupCharacterLighting() {
+    // 1. Rim Light fria-azulada traseira/superior para recorte de silhueta (ombros, headset, colete)
+    const rimLight = new THREE.PointLight(0x7dd3fc, 2.6, 4.5, 1.5);
+    rimLight.position.set(-0.28, 2.05, 0.95);
+    this.rootGroup.add(rimLight);
+
+    // 2. Key/Fill Light quente sobre o ombro direito para destacar a arma, luvas e dobras do tecido
+    const keyFillLight = new THREE.PointLight(0xfff4e6, 2.0, 4.2, 1.5);
+    keyFillLight.position.set(0.80, 1.62, 0.55);
+    this.rootGroup.add(keyFillLight);
+
+    // 3. Bounce Light inferior sutil para revelar detalhes das calças cargo, coldre, joelheiras e botas
+    const bounceLight = new THREE.PointLight(0x38bdf8, 1.0, 3.2, 1.6);
+    bounceLight.position.set(0.10, 0.45, 0.90);
+    this.rootGroup.add(bounceLight);
   }
 
   /**
@@ -181,20 +205,22 @@ export class Player {
               mesh.visible = false;
             }
 
-            // Aplica a camisa de compressão tática escura de manga curta e calça tática (sem touca e sem manchas)
+            // Aplica o traje tático PBR multi-material preservando os mapas originais de relevo (normal, roughness e AO)
             if (mesh.name === 'avaturn_look_0' && mesh.material) {
               const lookMat = mesh.material as THREE.MeshStandardMaterial;
               lookMat.map = tacticalOutfitTex;
-              lookMat.normalMap = null;
-              lookMat.roughnessMap = null;
-              lookMat.metalnessMap = null;
-              lookMat.aoMap = null;
-              lookMat.roughness = 0.78;
-              lookMat.metalness = 0.12;
+              if (lookMat.normalMap) {
+                lookMat.normalScale = new THREE.Vector2(1.35, 1.35);
+              }
+              if (lookMat.aoMap) {
+                lookMat.aoMapIntensity = 0.85;
+              }
+              lookMat.roughness = 0.72;
+              lookMat.metalness = 0.14;
               lookMat.needsUpdate = true;
 
               // Ajuste geométrico da roupa:
-              // 1) Remove a touca (hood) nas costas com transição suave nos ombros para deixar o cabelo 100% livre
+              // 1) Remove a touca (hood) nas costas com transição suave nos ombros para deixar a nuca e o colete 100% livres
               // 2) Suaviza o volume lateral/traseiro da cintura e quadril + suavização Laplaciana soldada (sem degraus)
               // 3) Estende e alarga levemente a barra da calça sobre o cano da bota no tornozelo
               const posAttr = mesh.geometry?.attributes.position;
@@ -355,7 +381,7 @@ export class Player {
               }
             }
 
-            // Fecha o tornozelo (sem pele aparente) e retrai suavemente a malha base sob a roupa e mangas para evitar clipping
+            // Fecha o tornozelo, retrai a malha sob a roupa e aplica Luvas Táticas de Carbono nas mãos
             if (mesh.name === 'avaturn_body' && mesh.material) {
               const bodyMat = mesh.material as THREE.MeshStandardMaterial;
               const posAttr = mesh.geometry?.attributes.position;
@@ -388,16 +414,24 @@ export class Player {
 
                   posAttr.setXYZ(i, x, y, z);
 
-                  // Cor de meia/cano de bota tática preta nos tornozelos e pés (y < 0.26)
-                  // e tecido escuro nas áreas cobertas (tronco, pernas e mangas), mantendo pele 100% original na cabeça/pescoço e mãos
+                  // 1. Tornozelos e pés (y < 0.26): meia/bota tática escura
+                  // 2. Mãos e dedos (ax >= 0.54 e y < 1.50): Luvas Táticas de Tiro em couro/carbono escuro com reforço nos nós dos dedos
+                  // 3. Tronco, pernas e braços sob a roupa: tecido base escuro
+                  // 4. Cabeça e pescoço (y >= 1.43 e ax < 0.18): pele natural 100% preservada
                   if (y < 0.26) {
                     colors[i * 3] = 0.06;
                     colors[i * 3 + 1] = 0.07;
                     colors[i * 3 + 2] = 0.09;
-                  } else if ((y < 1.43 && ax < 0.63) || (y < 1.48 && ax > 0.18 && ax < 0.63)) {
+                  } else if (ax >= 0.54 && y < 1.50) {
+                    // Luvas táticas de combate (carbono fosco com leve contraste nos dedos)
+                    const knuckleShade = ax > 0.72 ? 0.18 : 0.13;
+                    colors[i * 3] = knuckleShade;
+                    colors[i * 3 + 1] = knuckleShade + 0.015;
+                    colors[i * 3 + 2] = knuckleShade + 0.03;
+                  } else if ((y < 1.43 && ax < 0.54) || (y < 1.48 && ax > 0.18 && ax < 0.54)) {
                     colors[i * 3] = 0.08;
-                    colors[i * 3 + 1] = 0.09;
-                    colors[i * 3 + 2] = 0.12;
+                    colors[i * 3 + 1] = 0.10;
+                    colors[i * 3 + 2] = 0.11;
                   } else {
                     colors[i * 3] = 1.0;
                     colors[i * 3 + 1] = 1.0;
@@ -412,17 +446,16 @@ export class Player {
               }
             }
 
-            // Transforma o calçado em botas de combate táticas escuras de cano alto fechado dentro da barra da calça
+            // Botas de combate táticas preservando normalMap e aoMap originais para destacar cadarços, costuras e solado
             if (mesh.name.includes('shoes') && mesh.material) {
               const shoeMat = mesh.material as THREE.MeshStandardMaterial;
               shoeMat.map = null;
-              shoeMat.normalMap = null;
-              shoeMat.roughnessMap = null;
-              shoeMat.metalnessMap = null;
-              shoeMat.aoMap = null;
-              shoeMat.color.setHex(0x121418);
-              shoeMat.roughness = 0.86;
-              shoeMat.metalness = 0.08;
+              if (shoeMat.normalMap) {
+                shoeMat.normalScale = new THREE.Vector2(1.25, 1.25);
+              }
+              shoeMat.color.setHex(0x1e2228);
+              shoeMat.roughness = 0.62;
+              shoeMat.metalness = 0.18;
               shoeMat.needsUpdate = true;
 
               // Eleva todo o colarinho da bota (inclusive as laterais baixas em y > 0.045) e afunila o topo dentro da calça
@@ -450,15 +483,70 @@ export class Player {
               }
             }
 
-            // Cabelo livre nas costas sem interferência de touca
+            // Corte de Cabelo Tático na Altura da Nuca (estilo Leon RE4 Remake) + Vinculação ao Head/Neck
+            // Libera completamente os ombros, o colete dorsal e a linha de visão da câmera Over-The-Shoulder
             if (mesh.name === 'avaturn_hair_0' && mesh.material) {
               const hairMat = mesh.material as THREE.MeshStandardMaterial;
-              hairMat.color.setHex(0x2a1d15);
-              hairMat.roughness = 0.75;
-              hairMat.metalness = 0.05;
+              hairMat.color.setHex(0x362419);
+              hairMat.roughness = 0.56;
+              hairMat.metalness = 0.12;
               hairMat.depthWrite = true;
               hairMat.alphaTest = 0.5;
               hairMat.needsUpdate = true;
+
+              const hairPos = mesh.geometry?.attributes.position;
+              const skinIdx = mesh.geometry?.attributes.skinIndex;
+              const skinWgt = mesh.geometry?.attributes.skinWeight;
+              if (hairPos) {
+                for (let i = 0; i < hairPos.count; i++) {
+                  let x = hairPos.getX(i);
+                  let y = hairPos.getY(i);
+                  let z = hairPos.getZ(i);
+
+                  // Recolhe as mechas longas (y < 1.63) para um corte masculino tático na altura da nuca (y >= 1.52)
+                  if (y < 1.63) {
+                    const t = Math.min(1.0, (1.63 - y) / 0.35);
+                    y = 1.63 - (1.63 - y) * 0.32;
+                    // Afunila suavemente na nuca e atrás das orelhas
+                    const maxHalfX = THREE.MathUtils.lerp(0.102, 0.076, t);
+                    if (Math.abs(x) > maxHalfX) {
+                      x = Math.sign(x) * (maxHalfX + (Math.abs(x) - maxHalfX) * 0.18);
+                    }
+                    const minBackZ = THREE.MathUtils.lerp(-0.132, -0.106, t);
+                    if (z < minBackZ) {
+                      z = minBackZ + (z - minBackZ) * 0.15;
+                    }
+                    if (z > 0.02) {
+                      z = 0.02 + (z - 0.02) * (1.0 - 0.65 * t);
+                    }
+                  }
+
+                  // Ajuste nas têmporas/orelhas (y = 1.58..1.70) para encaixe perfeito sob o Headset Tático Peltor
+                  if (y >= 1.57 && y <= 1.71 && z > -0.065 && z < 0.045) {
+                    const maxEarX = 0.094;
+                    if (Math.abs(x) > maxEarX) {
+                      x = Math.sign(x) * maxEarX;
+                    }
+                  }
+
+                  hairPos.setXYZ(i, x, y, z);
+
+                  // Re-vincula 100% dos vértices do cabelo aos ossos Head (5) e Neck (4) para nunca esticar com os braços
+                  if (skinIdx && skinWgt) {
+                    if (y >= 1.56) {
+                      skinIdx.setXYZW(i, 5, 4, 0, 0);
+                      skinWgt.setXYZW(i, 1.0, 0.0, 0.0, 0.0);
+                    } else {
+                      skinIdx.setXYZW(i, 5, 4, 0, 0);
+                      skinWgt.setXYZW(i, 0.82, 0.18, 0.0, 0.0);
+                    }
+                  }
+                }
+                hairPos.needsUpdate = true;
+                if (skinIdx) skinIdx.needsUpdate = true;
+                if (skinWgt) skinWgt.needsUpdate = true;
+                mesh.geometry.computeVertexNormals();
+              }
             }
 
             // Oculta mechas soltas/cartões de transparência de avaturn_hair_1 para eliminar mechas gigantes ou blocos
@@ -475,6 +563,9 @@ export class Player {
             this.initialBonePositions[bone.name] = bone.position.clone();
           }
         });
+
+        // Acopla os Equipamentos Táticos 3D Next-Gen (Headset, Plate Carrier, Cinto Tático, Coldre e Joelheiras)
+        this.attachTacticalGear();
 
         // Acopla a pistola tática diretamente ao osso da mão direita (RightHand)
         if (this.bones['RightHand']) {
@@ -495,6 +586,482 @@ export class Player {
         console.warn('Aviso ao carregar leon.glb:', err);
       }
     );
+  }
+
+  /**
+   * Modela e acopla os Equipamentos Táticos 3D (Headset Peltor ComTac, Colete Plate Carrier com Rádio/MOLLE,
+   * Cinto de Guarnição com Porta-Carregadores, Coldre Kydex de Coxa e Joelheiras Articuladas) diretamente aos ossos.
+   */
+  private attachTacticalGear() {
+    if (!this.leonModel) return;
+
+    // Salva a rotação do modelo e atualiza matrizes na pose de repouso (identidade) para alinhar coordenadas de modelo
+    const savedRotY = this.leonModel.rotation.y;
+    this.leonModel.rotation.y = 0;
+    this.leonModel.updateMatrixWorld(true);
+
+    const createModelSpaceAnchor = (boneName: string): THREE.Group | null => {
+      const bone = this.bones[boneName];
+      if (!bone) return null;
+      const anchor = new THREE.Group();
+      anchor.name = `TacticalGear_${boneName}`;
+      const invBoneMatrix = bone.matrixWorld.clone().invert();
+      invBoneMatrix.decompose(anchor.position, anchor.quaternion, anchor.scale);
+      bone.add(anchor);
+      return anchor;
+    };
+
+    // Materiais PBR Next-Gen para os equipamentos táticos
+    const corduraOliveMat = new THREE.MeshStandardMaterial({
+      color: 0x384238,
+      roughness: 0.64,
+      metalness: 0.16
+    });
+    const corduraDarkMat = new THREE.MeshStandardMaterial({
+      color: 0x181c22,
+      roughness: 0.68,
+      metalness: 0.22
+    });
+    const kydexPolymerMat = new THREE.MeshStandardMaterial({
+      color: 0x1e232a,
+      roughness: 0.38,
+      metalness: 0.42
+    });
+    const brushedMetalMat = new THREE.MeshStandardMaterial({
+      color: 0x9aa4b2,
+      roughness: 0.25,
+      metalness: 0.88
+    });
+    const headsetShellMat = new THREE.MeshStandardMaterial({
+      color: 0x3b463e,
+      roughness: 0.42,
+      metalness: 0.38
+    });
+    const tacAccentCyanMat = new THREE.MeshStandardMaterial({
+      color: 0x00f0ff,
+      emissive: 0x00c8ff,
+      emissiveIntensity: 0.65,
+      roughness: 0.25,
+      metalness: 0.5
+    });
+    const tacAccentAmberMat = new THREE.MeshStandardMaterial({
+      color: 0xf59e0b,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.35,
+      roughness: 0.35,
+      metalness: 0.4
+    });
+
+    // =========================================================================
+    // 1. ABAFADOR / HEADSET TÁTICO DE ESTANDE DE TIRO (Peltor ComTac no Head)
+    // =========================================================================
+    const headAnchor = createModelSpaceAnchor('Head');
+    if (headAnchor) {
+      for (const side of [-1, 1]) {
+        // Almofada acústica interna preta
+        const cushion = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.040, 0.040, 0.016, 16),
+          corduraDarkMat
+        );
+        cushion.rotation.z = Math.PI / 2;
+        cushion.position.set(side * 0.094, 1.642, -0.008);
+        cushion.scale.set(1.22, 1.0, 0.92);
+        cushion.castShadow = true;
+        headAnchor.add(cushion);
+
+        // Concha acústica balística externa chanfrada
+        const cup = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.036, 0.042, 0.022, 16),
+          headsetShellMat
+        );
+        cup.rotation.z = Math.PI / 2;
+        cup.position.set(side * 0.106, 1.642, -0.008);
+        cup.scale.set(1.22, 1.0, 0.92);
+        cup.castShadow = true;
+        headAnchor.add(cup);
+
+        // Módulo eletrônico lateral e detalhe tático nas conchas
+        const capDetail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.010, 0.036, 0.024),
+          kydexPolymerMat
+        );
+        capDetail.position.set(side * 0.116, 1.642, -0.008);
+        headAnchor.add(capDetail);
+
+        const ledStrip = new THREE.Mesh(
+          new THREE.BoxGeometry(0.004, 0.014, 0.006),
+          side === -1 ? tacAccentCyanMat : tacAccentAmberMat
+        );
+        ledStrip.position.set(side * 0.120, 1.648, -0.018);
+        headAnchor.add(ledStrip);
+
+        // Haste metálica lateral ligando a concha ao arco superior
+        const wireYoke = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.004, 0.004, 0.115, 8),
+          brushedMetalMat
+        );
+        wireYoke.position.set(side * 0.102, 1.715, -0.010);
+        wireYoke.rotation.z = -side * 0.18;
+        headAnchor.add(wireYoke);
+      }
+
+      // Arco acolchoado superior sobre o topo do crânio
+      const headbandArch = new THREE.Mesh(
+        new THREE.TorusGeometry(0.098, 0.013, 10, 20, Math.PI * 0.78),
+        corduraDarkMat
+      );
+      headbandArch.position.set(0, 1.718, -0.010);
+      headbandArch.rotation.z = Math.PI * 0.11;
+      headbandArch.scale.set(1.0, 1.06, 1.15);
+      headbandArch.castShadow = true;
+      headAnchor.add(headbandArch);
+
+      // Microfone Boom Tático saindo da concha esquerda (x = +0.108) até a boca
+      const boomArm = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.003, 0.003, 0.13, 8),
+        brushedMetalMat
+      );
+      boomArm.position.set(0.082, 1.602, 0.055);
+      boomArm.rotation.set(1.18, 0.0, 0.42);
+      headAnchor.add(boomArm);
+
+      const micTip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.014, 0.010, 0.020),
+        corduraDarkMat
+      );
+      micTip.position.set(0.048, 1.576, 0.112);
+      micTip.rotation.y = -0.35;
+      headAnchor.add(micTip);
+    }
+
+    // =========================================================================
+    // 2. COLETE TÁTICO PLATE CARRIER + ARNÊS DORSAL + RÁDIO (Spine2)
+    // =========================================================================
+    const spine2Anchor = createModelSpaceAnchor('Spine2');
+    if (spine2Anchor) {
+      // Placa balística traseira principal (super visível na câmera OTS)
+      const backPlate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.245, 0.255, 0.028),
+        corduraOliveMat
+      );
+      backPlate.position.set(0, 1.245, -0.140);
+      backPlate.rotation.x = 0.08;
+      backPlate.castShadow = true;
+      backPlate.receiveShadow = true;
+      spine2Anchor.add(backPlate);
+
+      // Painel superior chanfrado da placa traseira + Alça de resgate (Drag Handle)
+      const backUpperBevel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.185, 0.065, 0.026),
+        corduraOliveMat
+      );
+      backUpperBevel.position.set(0, 1.375, -0.132);
+      backUpperBevel.rotation.x = 0.14;
+      spine2Anchor.add(backUpperBevel);
+
+      // Patch de Identificação Tática IFF luminoso sutil no topo do colete traseiro
+      const iffPatch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.075, 0.022, 0.008),
+        kydexPolymerMat
+      );
+      iffPatch.position.set(0, 1.382, -0.146);
+      iffPatch.rotation.x = 0.14;
+      spine2Anchor.add(iffPatch);
+
+      const iffGlowBar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.052, 0.006, 0.006),
+        tacAccentCyanMat
+      );
+      iffGlowBar.position.set(0, 1.382, -0.150);
+      iffGlowBar.rotation.x = 0.14;
+      spine2Anchor.add(iffGlowBar);
+
+      // 4 Faixas horizontais de fita MOLLE PALS nas costas com costuras em relevo
+      for (let r = 0; r < 4; r++) {
+        const molleRow = new THREE.Mesh(
+          new THREE.BoxGeometry(0.232, 0.020, 0.010),
+          corduraDarkMat
+        );
+        molleRow.position.set(0, 1.165 + r * 0.052, -0.153 + r * 0.003);
+        molleRow.rotation.x = 0.08;
+        spine2Anchor.add(molleRow);
+      }
+
+      // Arnês tático vertical duplo nas costas + fivelas metálicas
+      for (const side of [-1, 1]) {
+        const backStrap = new THREE.Mesh(
+          new THREE.BoxGeometry(0.036, 0.28, 0.014),
+          corduraDarkMat
+        );
+        backStrap.position.set(side * 0.082, 1.275, -0.152);
+        backStrap.rotation.x = 0.09;
+        backStrap.rotation.z = side * 0.06;
+        spine2Anchor.add(backStrap);
+
+        const buckle = new THREE.Mesh(
+          new THREE.BoxGeometry(0.042, 0.018, 0.018),
+          brushedMetalMat
+        );
+        buckle.position.set(side * 0.088, 1.365, -0.145);
+        spine2Anchor.add(buckle);
+
+        // Ombreiras acolchoadas do Plate Carrier sobre o trapézio
+        const shoulderPad = new THREE.Mesh(
+          new THREE.BoxGeometry(0.058, 0.026, 0.155),
+          corduraOliveMat
+        );
+        shoulderPad.position.set(side * 0.112, 1.432, -0.018);
+        shoulderPad.rotation.z = -side * 0.15;
+        shoulderPad.castShadow = true;
+        spine2Anchor.add(shoulderPad);
+
+        const shoulderStrapWeb = new THREE.Mesh(
+          new THREE.BoxGeometry(0.034, 0.014, 0.165),
+          corduraDarkMat
+        );
+        shoulderStrapWeb.position.set(side * 0.112, 1.442, -0.018);
+        shoulderStrapWeb.rotation.z = -side * 0.15;
+        spine2Anchor.add(shoulderStrapWeb);
+
+        // Faixas laterais Cummerbund envolvendo as costelas (conectando frente e costas)
+        const cummerbund = new THREE.Mesh(
+          new THREE.BoxGeometry(0.024, 0.105, 0.225),
+          corduraOliveMat
+        );
+        cummerbund.position.set(side * 0.162, 1.175, 0.005);
+        spine2Anchor.add(cummerbund);
+
+        const cummerMolle = new THREE.Mesh(
+          new THREE.BoxGeometry(0.028, 0.055, 0.205),
+          corduraDarkMat
+        );
+        cummerMolle.position.set(side * 0.165, 1.175, 0.005);
+        spine2Anchor.add(cummerMolle);
+      }
+
+      // Bolsa Dorsal de Hidratação / Rádio Tático (lado esquerdo-central das costas)
+      const radioPack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.095, 0.155, 0.042),
+        kydexPolymerMat
+      );
+      radioPack.position.set(0.055, 1.245, -0.168);
+      radioPack.rotation.x = 0.08;
+      radioPack.castShadow = true;
+      spine2Anchor.add(radioPack);
+
+      // Antena whip flexível do rádio subindo atrás do ombro esquerdo
+      const radioAntenna = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.0035, 0.005, 0.24, 8),
+        corduraDarkMat
+      );
+      radioAntenna.position.set(0.092, 1.415, -0.155);
+      radioAntenna.rotation.z = -0.08;
+      radioAntenna.rotation.x = -0.06;
+      spine2Anchor.add(radioAntenna);
+
+      // Módulo PTT (Push-To-Talk) no ombro esquerdo
+      const pttBox = new THREE.Mesh(
+        new THREE.BoxGeometry(0.038, 0.048, 0.022),
+        kydexPolymerMat
+      );
+      pttBox.position.set(0.115, 1.395, 0.068);
+      pttBox.rotation.x = -0.35;
+      spine2Anchor.add(pttBox);
+
+      // Placa balística frontal + 3 Porta-Carregadores Táticos no peito
+      const frontPlate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.235, 0.245, 0.028),
+        corduraOliveMat
+      );
+      frontPlate.position.set(0, 1.235, 0.148);
+      frontPlate.rotation.x = -0.08;
+      frontPlate.castShadow = true;
+      spine2Anchor.add(frontPlate);
+
+      for (let m = -1; m <= 1; m++) {
+        const magPouch = new THREE.Mesh(
+          new THREE.BoxGeometry(0.062, 0.125, 0.036),
+          corduraDarkMat
+        );
+        magPouch.position.set(m * 0.072, 1.185, 0.172);
+        magPouch.rotation.x = -0.08;
+        spine2Anchor.add(magPouch);
+
+        const magTop = new THREE.Mesh(
+          new THREE.BoxGeometry(0.050, 0.032, 0.024),
+          brushedMetalMat
+        );
+        magTop.position.set(m * 0.072, 1.258, 0.168);
+        magTop.rotation.x = -0.08;
+        spine2Anchor.add(magTop);
+      }
+    }
+
+    // =========================================================================
+    // 3. CINTO DE GUARNIÇÃO TÁTICO COM PORTA-CARREGADORES E IFAK (Hips)
+    // =========================================================================
+    const hipsAnchor = createModelSpaceAnchor('Hips');
+    if (hipsAnchor) {
+      // Cinturão rígido principal envolvendo a cintura (y = 0.905)
+      const beltBack = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.052, 0.032),
+        corduraDarkMat
+      );
+      beltBack.position.set(0, 0.905, -0.142);
+      beltBack.castShadow = true;
+      hipsAnchor.add(beltBack);
+
+      const beltFront = new THREE.Mesh(
+        new THREE.BoxGeometry(0.30, 0.052, 0.032),
+        corduraDarkMat
+      );
+      beltFront.position.set(0, 0.905, 0.122);
+      hipsAnchor.add(beltFront);
+
+      for (const side of [-1, 1]) {
+        const beltSide = new THREE.Mesh(
+          new THREE.BoxGeometry(0.034, 0.052, 0.275),
+          corduraDarkMat
+        );
+        beltSide.position.set(side * 0.168, 0.905, -0.010);
+        beltSide.castShadow = true;
+        hipsAnchor.add(beltSide);
+      }
+
+      // Fivela metálica Cobra frontal
+      const cobraBuckle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.058, 0.058, 0.018),
+        brushedMetalMat
+      );
+      cobraBuckle.position.set(0, 0.905, 0.138);
+      hipsAnchor.add(cobraBuckle);
+
+      // 2 Porta-Carregadores de Pistola inclinados no quadril esquerdo (x = +0.182)
+      // (Posição exata onde a mão esquerda busca o carregador na animação de recarga 'R')
+      for (let p = 0; p < 2; p++) {
+        const pPouch = new THREE.Mesh(
+          new THREE.BoxGeometry(0.034, 0.092, 0.042),
+          kydexPolymerMat
+        );
+        pPouch.position.set(0.184, 0.915, 0.035 - p * 0.055);
+        pPouch.rotation.x = -0.22;
+        pPouch.castShadow = true;
+        hipsAnchor.add(pPouch);
+
+        const spareMagTip = new THREE.Mesh(
+          new THREE.BoxGeometry(0.026, 0.028, 0.032),
+          brushedMetalMat
+        );
+        spareMagTip.position.set(0.186, 0.968, 0.024 - p * 0.055);
+        spareMagTip.rotation.x = -0.22;
+        hipsAnchor.add(spareMagTip);
+      }
+
+      // Bolsa médica IFAK traseira-central e Dump Pouch traseira-direita
+      const ifakPouch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.115, 0.088, 0.052),
+        corduraOliveMat
+      );
+      ifakPouch.position.set(0.035, 0.908, -0.168);
+      ifakPouch.castShadow = true;
+      hipsAnchor.add(ifakPouch);
+
+      const dumpPouch = new THREE.Mesh(
+        new THREE.BoxGeometry(0.078, 0.105, 0.044),
+        corduraDarkMat
+      );
+      dumpPouch.position.set(-0.085, 0.892, -0.164);
+      dumpPouch.castShadow = true;
+      hipsAnchor.add(dumpPouch);
+    }
+
+    // =========================================================================
+    // 4. COLDRE TÁTICO DE PERNA KYDEX (RightUpLeg - coxa direita x < 0 no modelo)
+    // =========================================================================
+    const rThighAnchor = createModelSpaceAnchor('RightUpLeg');
+    if (rThighAnchor) {
+      // Base/Placa de fixação do coldre na lateral externa da coxa direita
+      const holsterShroud = new THREE.Mesh(
+        new THREE.BoxGeometry(0.022, 0.165, 0.105),
+        corduraDarkMat
+      );
+      holsterShroud.position.set(-0.172, 0.695, 0.012);
+      holsterShroud.rotation.z = -0.05;
+      holsterShroud.castShadow = true;
+      rThighAnchor.add(holsterShroud);
+
+      // Corpo moldado em Kydex do coldre tático
+      const kydexShell = new THREE.Mesh(
+        new THREE.BoxGeometry(0.046, 0.150, 0.072),
+        kydexPolymerMat
+      );
+      kydexShell.position.set(-0.194, 0.698, 0.016);
+      kydexShell.rotation.z = -0.05;
+      kydexShell.castShadow = true;
+      rThighAnchor.add(kydexShell);
+
+      // Fita vertical de suspensão conectando o coldre ao cinto tático
+      const dropStrap = new THREE.Mesh(
+        new THREE.BoxGeometry(0.016, 0.145, 0.038),
+        corduraDarkMat
+      );
+      dropStrap.position.set(-0.172, 0.825, 0.012);
+      dropStrap.rotation.z = -0.04;
+      rThighAnchor.add(dropStrap);
+
+      // 2 Tiras horizontais envolvendo a coxa direita com fivelas
+      for (const sy of [0.655, 0.735]) {
+        const legStrap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.086, 0.082, 0.026, 16),
+          corduraDarkMat
+        );
+        legStrap.position.set(-0.095, sy, 0.014);
+        legStrap.scale.set(0.95, 1.0, 1.12);
+        rThighAnchor.add(legStrap);
+      }
+    }
+
+    // =========================================================================
+    // 5. JOELHEIRAS TÁTICAS ARTICULADAS (LeftLeg & RightLeg)
+    // =========================================================================
+    for (const [legBone, sideSign] of [['LeftLeg', 1], ['RightLeg', -1]] as const) {
+      const legAnchor = createModelSpaceAnchor(legBone);
+      if (!legAnchor) continue;
+
+      const kx = sideSign * 0.096;
+      // Base acolchoada de proteção no joelho
+      const kneePadBase = new THREE.Mesh(
+        new THREE.BoxGeometry(0.096, 0.115, 0.042),
+        corduraOliveMat
+      );
+      kneePadBase.position.set(kx, 0.490, 0.064);
+      kneePadBase.castShadow = true;
+      legAnchor.add(kneePadBase);
+
+      // Casco rígido chanfrado de impacto frontal
+      const kneeCapShell = new THREE.Mesh(
+        new THREE.BoxGeometry(0.082, 0.085, 0.028),
+        kydexPolymerMat
+      );
+      kneeCapShell.position.set(kx, 0.490, 0.082);
+      kneeCapShell.castShadow = true;
+      legAnchor.add(kneeCapShell);
+
+      // Tiras elásticas traseiras (visíveis de costas na câmera 3ª pessoa!)
+      for (const ky of [0.462, 0.518]) {
+        const kneeStrap = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.064, 0.062, 0.020, 14),
+          corduraDarkMat
+        );
+        kneeStrap.position.set(kx, ky, 0.005);
+        kneeStrap.scale.set(0.92, 1.0, 1.18);
+        legAnchor.add(kneeStrap);
+      }
+    }
+
+    // Restaura a rotação original do modelo (Math.PI)
+    this.leonModel.rotation.y = savedRotY;
+    this.leonModel.updateMatrixWorld(true);
   }
 
   /**
